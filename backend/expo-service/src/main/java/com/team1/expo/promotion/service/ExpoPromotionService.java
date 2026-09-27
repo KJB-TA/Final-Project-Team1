@@ -193,17 +193,20 @@ public class ExpoPromotionService {
         PaymentTransaction tx = paymentTransactionRepository.findByRefId(promotionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
+        // 배너는 환불 결과와 무관하게 먼저 내린다(예약 취소와 같은 순서).
+        // 재시도 배치는 결제 행만 CANCELLED 로 바꾸므로, 여기서 내리지 않으면 돈을 돌려준 뒤에도 노출된다.
+        promotion.cancel(clock);
+
+        // 실패해도 예외를 던지지 않는다 - 롤백되면 REFUND_FAILED 기록이 사라져 재시도 대상에서 빠진다.
         try {
             PgCancelResult result = pgClient.cancel(tx.getPaymentId(), tx.getAmount(), "배너 환불");
             if (result.success()) {
                 tx.markCancelled(clock.instant());
-                promotion.cancel(clock);
             } else {
                 tx.markRefundFailed("PG 환불 거절 code=" + result.responseCode(), refundMaxAttempts, refundBackoff, clock.instant());
             }
         } catch (PgCommunicationException e) {
             tx.markRefundFailed("PG 통신 실패: " + e.getMessage(), refundMaxAttempts, refundBackoff, clock.instant());
-            throw new BusinessException(ErrorCode.DEPENDENCY_UNAVAILABLE);
         }
     }
 
