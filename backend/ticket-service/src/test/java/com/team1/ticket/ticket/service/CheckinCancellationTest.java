@@ -62,7 +62,7 @@ class CheckinCancellationTest {
                 Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofHours(1));
 
         ticket = Ticket.issue(123L, "R-4K7Q-W2M8", EXPO_ID, 45L, 77L, 2, "tok-1", NOW.minusSeconds(3600));
-        when(tickets.findById(anyLong())).thenReturn(Optional.of(ticket));
+        when(tickets.findByIdForUpdate(anyLong())).thenReturn(Optional.of(ticket));
         when(expoClient.getExpo(EXPO_ID)).thenReturn(new ExpoSummary(EXPO_ID, OWNER_ID, "PUBLISHED", "테크 잡페어"));
     }
 

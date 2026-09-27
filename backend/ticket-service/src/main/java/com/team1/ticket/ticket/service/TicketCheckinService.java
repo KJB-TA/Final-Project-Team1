@@ -77,7 +77,7 @@ public class TicketCheckinService {
     @Transactional
     public CheckinResult checkin(Long ticketId, CheckinMethod method, AuthenticatedUser organizer) {
         requireOrganizer(organizer);
-        Ticket ticket = ticketRepository.findById(ticketId)
+        Ticket ticket = ticketRepository.findByIdForUpdate(ticketId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "ticket not found: " + ticketId));
         verifyOwnership(ticket, organizer);
         Instant now = clock.instant();
@@ -92,7 +92,7 @@ public class TicketCheckinService {
     @Transactional
     public CheckinResult cancelCheckin(Long ticketId, AuthenticatedUser organizer) {
         requireOrganizer(organizer);
-        Ticket ticket = ticketRepository.findById(ticketId)
+        Ticket ticket = ticketRepository.findByIdForUpdate(ticketId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "ticket not found: " + ticketId));
         verifyOwnership(ticket, organizer);
 
