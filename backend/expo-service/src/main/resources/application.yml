@@ -40,6 +40,12 @@ reservation-service:
   connect-timeout: 2s
   read-timeout: 3s
 
+# ticket-service 내부 호출(예약 현황의 회차별 체크인 수). 실패해도 현황은 보여준다.
+ticket-service:
+  base-url: ${TICKET_SERVICE_URL:http://localhost:8084}
+  connect-timeout: 2s
+  read-timeout: 3s
+
 scheduler:
   auto-close:
     cron: "0 */10 * * * *"

@@ -1,6 +1,7 @@
 package com.team1.expo.reservation.service;
 
 import com.team1.expo.client.ReservationClient;
+import com.team1.expo.client.TicketClient;
 import com.team1.expo.common.exception.BusinessException;
 import com.team1.expo.common.exception.ErrorCode;
 import com.team1.expo.domain.channel.ChannelRepository;
@@ -25,14 +26,19 @@ public class ReservationSummaryService {
     private final ExpoRepository expoRepository;
     private final ChannelRepository channelRepository;
     private final ReservationClient reservationClient;
+    private final TicketClient ticketClient;
 
     public ReservationSummaryResponse getSummary(Long requesterId, Long expoId) {
         verifyOwnership(expoId, requesterId);
 
         List<ReservationClient.ReservationSummaryItem> summaries = reservationClient.getSummary(expoId);
 
+        // 체크인이 0인 회차는 목록에 없어 0 으로 채운다. 조회 실패면 null 로 두어 화면이 칸을 비운다.
+        Map<Long, Long> checkedIn = ticketClient.checkedInByRound(expoId);
+
         List<RoundSummary> rounds = summaries.stream()
-                .map(s -> new RoundSummary(s.roundId(), s.capacity(), s.confirmed(), s.cancelled(), null))
+                .map(s -> new RoundSummary(s.roundId(), s.capacity(), s.confirmed(), s.cancelled(),
+                        checkedIn == null ? null : checkedIn.getOrDefault(s.roundId(), 0L).intValue()))
                 .collect(Collectors.toList());
 
         return new ReservationSummaryResponse(expoId, rounds);

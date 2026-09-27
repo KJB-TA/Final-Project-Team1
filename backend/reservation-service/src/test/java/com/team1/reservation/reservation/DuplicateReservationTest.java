@@ -18,9 +18,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -29,8 +37,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
 /**
- * 중복 예약 판정이 상태를 보는지 확인한다. UNIQUE (round_id, user_id) 를 걸었다면
- * 아래 "취소 후 재예약" Test 가 실패한다 - 그게 UNIQUE 를 쓰지 않은 이유다.
+ * 중복 예약 판정이 상태를 보는지 확인한다. 단순 UNIQUE (round_id, user_id) 는 "취소 후 재예약" 을 막으므로,
+ * 유효 예약일 때만 값이 생기는 생성 컬럼(active_holder)에 UNIQUE 를 건다(V14).
  */
 class DuplicateReservationTest extends IntegrationTestSupport {
 
@@ -116,5 +124,47 @@ class DuplicateReservationTest extends IntegrationTestSupport {
         Reservation saved = reservationService.create(roundId, MEMBER, request()).reservation();
 
         assertThat(saved.getContactPhone()).isEqualTo("01012345678");
+    }
+
+    @Test
+    @DisplayName("DB 가 직접 막는다 - 서비스를 거치지 않고 유효 예약 두 건을 넣어도 두 번째는 실패한다")
+    void databaseRejectsSecondActiveReservation() {
+        Instant now = Instant.now();
+        reservations.saveAndFlush(Reservation.create("R-TEST-0001", roundId, 1L, 1L,
+                "홍길동", "01012345678", 1, 10000, now));
+
+        assertThatThrownBy(() -> reservations.saveAndFlush(Reservation.create("R-TEST-0002", roundId, 1L, 1L,
+                "홍길동", "01012345678", 1, 10000, now)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("같은 회원의 동시 요청 두 개 중 하나만 성공하고, 실패한 쪽이 차감한 정원은 돌아온다")
+    void concurrentRequestsCreateOnlyOne() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Boolean>> results = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            results.add(pool.submit(() -> {
+                start.await();
+                try {
+                    reservationService.create(roundId, MEMBER, request());
+                    return true;
+                } catch (ApiException e) {
+                    assertThat(e.code()).isEqualTo(ErrorCode.DUPLICATE_RESERVATION);
+                    return false;
+                }
+            }));
+        }
+        start.countDown();
+        int succeeded = 0;
+        for (Future<Boolean> r : results) {
+            if (r.get(10, TimeUnit.SECONDS)) succeeded++;
+        }
+        pool.shutdown();
+
+        assertThat(succeeded).isEqualTo(1);
+        assertThat(reservations.findAll()).hasSize(1);
+        assertThat(rounds.findById(roundId).orElseThrow().getReservedCount()).isEqualTo(1);
     }
 }

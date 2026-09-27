@@ -1,6 +1,7 @@
 package com.team1.expo.promotion;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.team1.expo.domain.expo.ExpoRepository;
 import com.team1.expo.domain.promotion.ExpoPromotion;
 import com.team1.expo.domain.promotion.ExpoPromotionRepository;
 import com.team1.expo.domain.promotion.ExpoPaymentTransactionRepository;
@@ -24,6 +25,8 @@ class ActivePromotionApiTest extends ApiTestSupport {
     private ExpoPromotionRepository promotionRepository;
     @Autowired
     private ExpoPaymentTransactionRepository paymentTransactionRepository;
+    @Autowired
+    private ExpoRepository expoRepository;
 
     private long expoId1;
     private long expoId2;
@@ -63,6 +66,22 @@ class ActivePromotionApiTest extends ApiTestSupport {
             assertThat(node.path("title").asText()).isNotBlank();
         }
         assertThat(ids).contains(p1, p2);
+    }
+
+    @Test
+    @DisplayName("숨김·마감 박람회의 ACTIVE 배너는 자정 만료 전이라도 조회에서 빠진다")
+    void 비공개_박람회_배너_미포함() {
+        long visible = activePromotion(expoId1, Instant.parse("2026-09-01T00:00:00Z"));
+        long hidden = activePromotion(expoId2, Instant.parse("2026-09-02T00:00:00Z"));
+        var expo = expoRepository.findById(expoId2).orElseThrow();
+        expo.unpublish();
+        expoRepository.save(expo);
+
+        JsonNode data = get("/api/v1/expo-promotions/active", null).getBody().path("data");
+
+        var ids = new java.util.HashSet<Long>();
+        for (JsonNode node : data) ids.add(node.path("promotionId").asLong());
+        assertThat(ids).contains(visible).doesNotContain(hidden);
     }
 
     @Test
@@ -108,7 +127,11 @@ class ActivePromotionApiTest extends ApiTestSupport {
                 """
                 {"title":"배너 테스트 박람회","category":"IT·전자","description":"설명","venue":"코엑스","region":"서울"}
                 """, token);
-        return expoRes.getBody().path("data").path("id").asLong();
+        long id = expoRes.getBody().path("data").path("id").asLong();
+        var expo = expoRepository.findById(id).orElseThrow();
+        expo.publish();
+        expoRepository.save(expo);
+        return id;
     }
 
     private long activePromotion(long expoId, Instant paidAt) {

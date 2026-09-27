@@ -11,11 +11,15 @@ import com.team1.expo.promotion.dto.ActivePromotionResponse;
 import com.team1.expo.promotion.dto.ApplyPromotionRequest;
 import com.team1.expo.promotion.dto.ApplyPromotionResponse;
 import com.team1.expo.promotion.dto.InternalPromotionPaymentResponse;
-import com.team1.payment.PaymentIdGenerator;
+import com.team1.expo.promotion.dto.PromotionPaymentResponse;
+import com.team1.payment.PaymentApprovalOutcome;
+import com.team1.payment.PaymentApprovalResult;
+import com.team1.payment.PaymentService;
 import com.team1.payment.PaymentTransaction;
 import com.team1.payment.PgCancelResult;
 import com.team1.payment.PgClient;
 import com.team1.payment.PgCommunicationException;
+import com.team1.payment.WebhookProcessResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -44,7 +48,7 @@ public class ExpoPromotionService {
     private final ExpoRepository expoRepository;
     private final ChannelRepository channelRepository;
     private final PgClient pgClient;
-    private final PaymentIdGenerator paymentIdGenerator;
+    private final PaymentService paymentService;
     private final Clock clock;
     private final int refundMaxAttempts;
     private final Duration refundBackoff;
@@ -57,7 +61,7 @@ public class ExpoPromotionService {
             ExpoRepository expoRepository,
             ChannelRepository channelRepository,
             PgClient pgClient,
-            PaymentIdGenerator paymentIdGenerator,
+            PaymentService paymentService,
             Clock clock,
             @Value("${scheduler.refund-retry.max-attempts}") int refundMaxAttempts,
             @Value("${scheduler.refund-retry.backoff}") Duration refundBackoff,
@@ -69,7 +73,7 @@ public class ExpoPromotionService {
         this.expoRepository = expoRepository;
         this.channelRepository = channelRepository;
         this.pgClient = pgClient;
-        this.paymentIdGenerator = paymentIdGenerator;
+        this.paymentService = paymentService;
         this.clock = clock;
         this.refundMaxAttempts = refundMaxAttempts;
         this.refundBackoff = refundBackoff;
@@ -80,6 +84,11 @@ public class ExpoPromotionService {
     @Transactional
     public ApplyPromotionResponse apply(Long requesterId, ApplyPromotionRequest request) {
         verifyOwnership(request.expoId(), requesterId);
+
+        // 방문자에게 보이지 않는 박람회에 노출 비용을 받지 않는다
+        if (expoRepository.findById(request.expoId()).map(Expo::getStatus).orElse(null) != ExpoStatus.PUBLISHED) {
+            throw new BusinessException(ErrorCode.PROMOTION_EXPO_NOT_PUBLISHED);
+        }
 
         // 전체 슬롯 수 초과 시 거절
         if (promotionRepository.countByStatus(ExpoPromotionStatus.ACTIVE) >= bannerMaxSlots) {
@@ -98,17 +107,76 @@ public class ExpoPromotionService {
         ExpoPromotion promotion = promotionRepository.save(
                 ExpoPromotion.create(request.expoId(), BANNER_PRICE, clock));
 
-        String paymentId = paymentIdGenerator.generate();
-        paymentTransactionRepository.save(
-                PaymentTransaction.create(promotion.getId(), paymentId, BANNER_PRICE, clock.instant()));
+        // PG 에 금액을 사전 등록해 두어야 결제 확인 때 금액을 검증할 수 있다(예약 결제와 같은 경로)
+        PaymentTransaction tx;
+        try {
+            tx = paymentService.createPending(promotion.getId(), BANNER_PRICE);
+        } catch (PgCommunicationException e) {
+            throw new BusinessException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        }
 
         return new ApplyPromotionResponse(
                 promotion.getId(),
                 promotion.getExpoId(),
                 promotion.getAmount(),
-                paymentId,
+                tx.getPaymentId(),
                 promotion.getStatus().name()
         );
+    }
+
+    /** 결제창이 닫힌 뒤 주최자 화면이 부른다. PG 에 직접 확인한 결과로만 배너를 켠다. */
+    @Transactional
+    public PromotionPaymentResponse confirmPayment(Long requesterId, Long promotionId) {
+        ExpoPromotion promotion = promotionRepository.findById(promotionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        verifyOwnership(promotion.getExpoId(), requesterId);
+
+        if (promotion.getStatus() != ExpoPromotionStatus.ACTIVE) {
+            applyPaymentResult(promotion, paymentService.confirm(promotionId));
+        }
+        return new PromotionPaymentResponse(promotion.getId(), promotion.getStatus().name());
+    }
+
+    /** PortOne 웹훅(서명 검증 완료) 결과를 반영한다. 재전송이 필요하면 false. */
+    @Transactional
+    public boolean applyWebhook(WebhookProcessResult processed) {
+        PaymentApprovalOutcome outcome = processed.approvalResult().outcome();
+        if (processed.refId() == null
+                || outcome == PaymentApprovalOutcome.ALREADY_PROCESSED
+                || outcome == PaymentApprovalOutcome.IGNORED) {
+            return true;
+        }
+        if (outcome == PaymentApprovalOutcome.UNKNOWN) {
+            return false;
+        }
+        ExpoPromotion promotion = promotionRepository.findById(processed.refId()).orElse(null);
+        if (promotion == null || promotion.getStatus() == ExpoPromotionStatus.ACTIVE) {
+            return true;
+        }
+        try {
+            applyPaymentResult(promotion, processed.approvalResult());
+        } catch (BusinessException e) {
+            // 이미 최종 상태이거나 금액 불일치 - 재전송으로 풀리지 않는다
+            log.warn("promotion webhook not applied promotionId={} code={}", promotion.getId(), e.getErrorCode());
+        }
+        return true;
+    }
+
+    // 결제 확인 경로(주최자 화면·웹훅)가 모두 이 함수로 상태를 바꾼다
+    private void applyPaymentResult(ExpoPromotion promotion, PaymentApprovalResult result) {
+        if (promotion.getStatus() != ExpoPromotionStatus.PENDING) {
+            throw new BusinessException(ErrorCode.INVALID_STATE_TRANSITION);
+        }
+        switch (result.outcome()) {
+            case SUCCESS -> promotion.confirm(clock);
+            case FAILED_CONFIRMED -> promotion.cancel(clock);
+            case AMOUNT_MISMATCH -> {
+                log.warn("promotion payment amount mismatch promotionId={}", promotion.getId());
+                throw new BusinessException(ErrorCode.PAYMENT_AMOUNT_MISMATCH);
+            }
+            case UNKNOWN -> throw new BusinessException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+            default -> { }
+        }
     }
 
     @Transactional
@@ -141,7 +209,18 @@ public class ExpoPromotionService {
 
     @Transactional(readOnly = true)
     public List<ActivePromotionResponse> getActive() {
-        List<ExpoPromotion> promotions = promotionRepository.findByStatusOrderByPaidAtAsc(ExpoPromotionStatus.ACTIVE);
+        List<ExpoPromotion> active = promotionRepository.findByStatusOrderByPaidAtAsc(ExpoPromotionStatus.ACTIVE);
+        if (active.isEmpty()) return List.of();
+
+        // 숨김·마감 박람회는 자정 만료 배치를 기다리지 않고 바로 뺀다
+        Map<Long, Expo> published = expoRepository
+                .findAllById(active.stream().map(ExpoPromotion::getExpoId).collect(Collectors.toSet()))
+                .stream()
+                .filter(e -> e.getStatus() == ExpoStatus.PUBLISHED)
+                .collect(Collectors.toMap(Expo::getId, e -> e));
+        List<ExpoPromotion> promotions = active.stream()
+                .filter(p -> published.containsKey(p.getExpoId()))
+                .toList();
         if (promotions.isEmpty()) return List.of();
 
         // ponytail: 30초 단위 순환 — 상태 없이 시계로만 회전. 수십 개 초과 시 DB 기반 커서로 교체
@@ -150,12 +229,8 @@ public class ExpoPromotionService {
         List<ExpoPromotion> rotated = new ArrayList<>(promotions.subList(offset, size));
         rotated.addAll(promotions.subList(0, offset));
 
-        Map<Long, com.team1.expo.domain.expo.Expo> expoMap = expoRepository
-                .findAllById(rotated.stream().map(ExpoPromotion::getExpoId).collect(Collectors.toSet()))
-                .stream().collect(Collectors.toMap(com.team1.expo.domain.expo.Expo::getId, e -> e));
-
         return rotated.stream()
-                .map(p -> ActivePromotionResponse.of(p, expoMap.get(p.getExpoId())))
+                .map(p -> ActivePromotionResponse.of(p, published.get(p.getExpoId())))
                 .toList();
     }
 

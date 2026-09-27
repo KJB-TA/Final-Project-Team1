@@ -47,19 +47,24 @@ public class WebhookService {
             return new WebhookProcessResult(null, PaymentApprovalResult.ignored("결제 관련 웹훅 아님"));
         }
 
-        String paymentId = transaction.getData().getPaymentId();
+        return processTransaction(webhookId, transaction.getData().getPaymentId(),
+                transaction.getClass().getSimpleName());
+    }
+
+    // 서명 검증을 통과한 결제 웹훅 처리. 테스트가 SDK 타입 없이 부를 수 있게 분리했다.
+    WebhookProcessResult processTransaction(String webhookId, String paymentId, String eventType) {
         Long knownRefId = paymentTransactionRepository.findByPaymentId(paymentId)
                 .map(PaymentTransaction::getRefId)
                 .orElse(null);
 
-        if (webhookEventRepository.findByWebhookId(webhookId).isPresent()) {
+        // RECEIVED 로 남은 건 지난번에 결과를 몰라 503 을 준 웹훅이다. 재전송이면 다시 처리한다.
+        Optional<WebhookEvent> existing = webhookEventRepository.findByWebhookId(webhookId);
+        if (existing.isPresent() && existing.get().getStatus() != WebhookEventStatus.RECEIVED) {
             return new WebhookProcessResult(knownRefId, PaymentApprovalResult.alreadyProcessed());
         }
 
-        WebhookEvent webhookEvent = WebhookEvent.receive(
-                webhookId, paymentId,
-                transaction.getClass().getSimpleName(), clock.instant());
-        webhookEventRepository.save(webhookEvent);
+        WebhookEvent webhookEvent = existing.orElseGet(() -> webhookEventRepository.save(
+                WebhookEvent.receive(webhookId, paymentId, eventType, clock.instant())));
 
         Optional<PaymentTransaction> paymentTransactionOptional = paymentTransactionRepository.findByPaymentId(paymentId);
         if (paymentTransactionOptional.isEmpty()) {
@@ -69,7 +74,10 @@ public class WebhookService {
 
         PaymentApprovalResult approvalResult = paymentService.confirm(paymentTransaction.getRefId());
 
-        webhookEvent.markProcessed(clock.instant());
+        // 결과를 모르면 처리 완료로 적지 않는다. 적으면 PortOne 재전송이 중복으로 무시된다.
+        if (approvalResult.outcome() != PaymentApprovalOutcome.UNKNOWN) {
+            webhookEvent.markProcessed(clock.instant());
+        }
 
         return new WebhookProcessResult(paymentTransaction.getRefId(), approvalResult);
     }
