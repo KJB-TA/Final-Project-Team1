@@ -46,8 +46,8 @@ export const authApi = {
   google: (data: { googleAccessToken: string }) =>
     api.post<ApiResponse<LoginResponse>>('/auth/google', data),
 
-  // POST /api/v1/auth/naver — 네이버 액세스 토큰으로 로그인(신규는 자동 가입)
-  naver: (data: { naverAccessToken: string }) =>
+  // POST /api/v1/auth/naver — 네이버 인가 코드로 로그인(백엔드가 토큰 교환, 신규는 자동 가입)
+  naver: (data: { code: string; state: string }) =>
     api.post<ApiResponse<LoginResponse>>('/auth/naver', data),
 
   // POST /api/v1/auth/kakao — 카카오 인가 코드로 로그인(백엔드가 토큰 교환, 신규는 자동 가입)

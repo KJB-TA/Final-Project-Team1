@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { googleLoginEnabled, requestGoogleAccessToken } from '../lib/googleAuth'
-import { naverLoginEnabled, requestNaverAccessToken } from '../lib/naverAuth'
+import { naverLoginEnabled, requestNaverAuthCode } from '../lib/naverAuth'
 import { kakaoLoginEnabled, requestKakaoAuthCode } from '../lib/kakaoAuth'
 
 const CATS = ['IT·전자', '식품·음료', '패션·뷰티', '교육·취업', '문화·예술', '기타']
@@ -106,7 +106,7 @@ export default function AuthPage() {
     runSocialLogin(requestGoogleAccessToken, t => authApi.google({ googleAccessToken: t }))
 
   const handleNaverLogin = () =>
-    runSocialLogin(requestNaverAccessToken, t => authApi.naver({ naverAccessToken: t }))
+    runSocialLogin(requestNaverAuthCode, ({ code, state }) => authApi.naver({ code, state }))
 
   const handleKakaoLogin = () =>
     runSocialLogin(requestKakaoAuthCode, ({ code, redirectUri }) => authApi.kakao({ code, redirectUri }))

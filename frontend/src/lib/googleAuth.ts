@@ -10,6 +10,7 @@ declare global {
           initTokenClient(config: {
             client_id: string
             scope: string
+            prompt?: string
             callback: (response: { access_token?: string; error?: string }) => void
           }): { requestAccessToken: () => void }
         }
@@ -52,6 +53,8 @@ export async function requestGoogleAccessToken(): Promise<string> {
     const client = window.google!.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID!,
       scope: 'openid email profile',
+      // 매번 계정 선택을 띄운다(자동으로 이전 계정에 붙지 않게).
+      prompt: 'select_account',
       callback: (response) => {
         if (response.error || !response.access_token) {
           reject(new Error(response.error || '구글 인증이 취소되었습니다.'))

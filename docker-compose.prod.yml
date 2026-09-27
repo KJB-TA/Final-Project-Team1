@@ -54,6 +54,9 @@ services:
       KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
       # REST 키에 클라이언트 시크릿이 켜져 있으면 그 값도 필요(카카오 신규 앱 기본 활성화)
       KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
+      # 네이버 로그인 인가 코드 교환용 Client ID/Secret. 비어 있으면 네이버 로그인만 동작 안 함
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:-}
 
   expo-service:
     <<: *backend

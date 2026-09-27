@@ -44,3 +44,8 @@ jwt:
 kakao:
   rest-api-key: ${KAKAO_REST_API_KEY:}
   client-secret: ${KAKAO_CLIENT_SECRET:}
+
+# 네이버 로그인 인가 코드 교환용 Client ID/Secret. 비어 있으면 네이버 로그인만 동작하지 않는다.
+naver:
+  client-id: ${NAVER_CLIENT_ID:}
+  client-secret: ${NAVER_CLIENT_SECRET:}

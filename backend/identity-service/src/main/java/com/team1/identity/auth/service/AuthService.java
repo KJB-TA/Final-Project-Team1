@@ -101,12 +101,12 @@ public class AuthService {
     }
 
     /**
-     * 네이버 로그인. 프론트가 받은 액세스 토큰으로 네이버 사용자 정보를 조회한다.
+     * 네이버 로그인. 프론트가 받은 인가 코드·state 로 서버가 토큰을 교환하고 사용자 정보를 조회한다.
      * 네이버는 이메일을 주므로 구글과 동일하게 이메일 기준으로 연결·생성한다.
      */
     @Transactional
-    public LoginResponse naverLogin(String naverAccessToken) {
-        NaverUserInfoResponse info = naverApiClient.getUserInfo(naverAccessToken);
+    public LoginResponse naverLogin(String code, String state) {
+        NaverUserInfoResponse info = naverApiClient.getUserInfoByCode(code, state);
         NaverUserInfoResponse.Response r = info == null ? null : info.response();
         String email = r == null ? null : r.email();
         String name = r == null ? null : r.name();

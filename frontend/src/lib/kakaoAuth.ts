@@ -20,12 +20,14 @@ export async function requestKakaoAuthCode(): Promise<KakaoAuthResult> {
   if (!KAKAO_REST_KEY) throw new Error('카카오 로그인이 설정되지 않았습니다.')
   const redirectUri = kakaoRedirectUri()
   // 방안 B: 이메일은 비즈앱이라야 받을 수 있어 닉네임만 요청한다. 서버가 이메일 없으면 placeholder 로 처리.
+  // prompt=login: 기존 카카오 세션을 그냥 재사용하지 않고 매번 로그인/계정 확인을 거치게 한다.
   const url =
     'https://kauth.kakao.com/oauth/authorize' +
     '?response_type=code' +
     '&client_id=' + encodeURIComponent(KAKAO_REST_KEY) +
     '&redirect_uri=' + encodeURIComponent(redirectUri) +
-    '&scope=' + encodeURIComponent('profile_nickname')
+    '&scope=' + encodeURIComponent('profile_nickname') +
+    '&prompt=login'
 
   const popup = window.open(url, 'kakao_login', 'width=480,height=640')
   if (!popup) throw new Error('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.')

@@ -48,9 +48,9 @@ class NaverLoginServiceTest extends IntegrationTestSupport {
     @DisplayName("처음 로그인하는 네이버 계정은 USER 회원으로 새로 만들고, 검증 가능한 토큰을 발급한다")
     void 신규_네이버_계정은_회원으로_생성된다() {
         String email = uniqueEmail();
-        when(naverApiClient.getUserInfo(anyString())).thenReturn(profile("naver-1", email, "네이버사용자"));
+        when(naverApiClient.getUserInfoByCode(anyString(), anyString())).thenReturn(profile("naver-1", email, "네이버사용자"));
 
-        LoginResponse response = authService.naverLogin("access-token");
+        LoginResponse response = authService.naverLogin("code", "state");
 
         AuthenticatedUser authenticated = new JwtValidator(TEST_JWT_SECRET).validate(response.accessToken());
         assertThat(authenticated.role()).isEqualTo("USER");
@@ -64,9 +64,9 @@ class NaverLoginServiceTest extends IntegrationTestSupport {
         String email = uniqueEmail();
         SignUpResponse existing = authService.signUp(new SignUpRequest(email, "password123", "기존회원"));
         long usersBefore = userRepository.count();
-        when(naverApiClient.getUserInfo(anyString())).thenReturn(profile("naver-2", email, "네이버사용자"));
+        when(naverApiClient.getUserInfoByCode(anyString(), anyString())).thenReturn(profile("naver-2", email, "네이버사용자"));
 
-        LoginResponse response = authService.naverLogin("access-token");
+        LoginResponse response = authService.naverLogin("code", "state");
 
         AuthenticatedUser authenticated = new JwtValidator(TEST_JWT_SECRET).validate(response.accessToken());
         assertThat(authenticated.userId()).isEqualTo(existing.userId());
@@ -77,11 +77,11 @@ class NaverLoginServiceTest extends IntegrationTestSupport {
     @DisplayName("같은 네이버 계정으로 두 번 로그인해도 회원·연결이 중복 생성되지 않는다")
     void 재로그인은_중복을_만들지_않는다() {
         String email = uniqueEmail();
-        when(naverApiClient.getUserInfo(anyString())).thenReturn(profile("naver-3", email, "네이버사용자"));
+        when(naverApiClient.getUserInfoByCode(anyString(), anyString())).thenReturn(profile("naver-3", email, "네이버사용자"));
 
-        LoginResponse first = authService.naverLogin("access-token");
+        LoginResponse first = authService.naverLogin("code", "state");
         long accountsAfterFirst = oauthAccountRepository.count();
-        LoginResponse second = authService.naverLogin("access-token");
+        LoginResponse second = authService.naverLogin("code", "state");
 
         AuthenticatedUser u1 = new JwtValidator(TEST_JWT_SECRET).validate(first.accessToken());
         AuthenticatedUser u2 = new JwtValidator(TEST_JWT_SECRET).validate(second.accessToken());
@@ -92,9 +92,9 @@ class NaverLoginServiceTest extends IntegrationTestSupport {
     @Test
     @DisplayName("네이버가 이메일을 주지 않으면(방안 A) 소셜 로그인 실패로 던진다")
     void 이메일이_없으면_실패한다() {
-        when(naverApiClient.getUserInfo(anyString())).thenReturn(profile("naver-4", null, "네이버사용자"));
+        when(naverApiClient.getUserInfoByCode(anyString(), anyString())).thenReturn(profile("naver-4", null, "네이버사용자"));
 
-        assertThatThrownBy(() -> authService.naverLogin("access-token"))
+        assertThatThrownBy(() -> authService.naverLogin("code", "state"))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.SOCIAL_LOGIN_FAILED);
@@ -103,10 +103,10 @@ class NaverLoginServiceTest extends IntegrationTestSupport {
     @Test
     @DisplayName("네이버 토큰이 유효하지 않으면(네이버가 4xx) 소셜 로그인 실패로 던진다")
     void 잘못된_토큰은_실패한다() {
-        when(naverApiClient.getUserInfo(anyString()))
+        when(naverApiClient.getUserInfoByCode(anyString(), anyString()))
                 .thenThrow(new BusinessException(ErrorCode.SOCIAL_LOGIN_FAILED));
 
-        assertThatThrownBy(() -> authService.naverLogin("bad-token"))
+        assertThatThrownBy(() -> authService.naverLogin("bad-code", "state"))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.SOCIAL_LOGIN_FAILED);

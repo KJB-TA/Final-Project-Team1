@@ -107,7 +107,7 @@ public class AuthController {
     })
     @PostMapping("/naver")
     public ApiResponse<LoginResponse> naverLogin(@Valid @RequestBody NaverLoginRequest request) {
-        return ApiResponse.ok(authService.naverLogin(request.naverAccessToken()));
+        return ApiResponse.ok(authService.naverLogin(request.code(), request.state()));
     }
 
     @Operation(
