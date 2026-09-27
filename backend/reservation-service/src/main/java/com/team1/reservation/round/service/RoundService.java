@@ -293,8 +293,14 @@ public class RoundService {
 
     @Transactional(readOnly = true)
     public List<Long> finishedExpoIds(Instant before, int limit) {
+        return finishedExpoIds(before, 0L, limit);
+    }
+
+    /** afterExpoId 보다 큰 id 만 id 순으로 돌려준다. 호출부는 마지막 id 를 다음 커서로 넘긴다. */
+    @Transactional(readOnly = true)
+    public List<Long> finishedExpoIds(Instant before, long afterExpoId, int limit) {
         int size = Math.min(Math.max(limit, 1), MAX_FINISHED_EXPO_LIMIT);
-        return rounds.findExpoIdsWithAllRoundsEndedBefore(before, PageRequest.of(0, size));
+        return rounds.findExpoIdsWithAllRoundsEndedBefore(before, afterExpoId, PageRequest.of(0, size));
     }
 
 

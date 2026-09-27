@@ -11,6 +11,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
@@ -18,6 +20,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 class ExpoAutoCloseSchedulerTest extends IntegrationTestSupport {
@@ -40,7 +44,7 @@ class ExpoAutoCloseSchedulerTest extends IntegrationTestSupport {
         Channel channel = channelRepository.save(Channel.create(uniqueName(), uniqueUserId(), "desc"));
         Expo expo = expoRepository.save(publishedExpo(channel.getId()));
 
-        when(roundClient.finishedExpoIds(any(Instant.class), anyInt()))
+        when(roundClient.finishedExpoIds(any(Instant.class), anyLong(), anyInt()))
                 .thenReturn(List.of(expo.getId()));
 
         scheduler.closeFinishedExpos();
@@ -56,7 +60,7 @@ class ExpoAutoCloseSchedulerTest extends IntegrationTestSupport {
         Channel channel = channelRepository.save(Channel.create(uniqueName(), uniqueUserId(), "desc"));
         Expo expo = expoRepository.save(hiddenExpo(channel.getId()));
 
-        when(roundClient.finishedExpoIds(any(Instant.class), anyInt()))
+        when(roundClient.finishedExpoIds(any(Instant.class), anyLong(), anyInt()))
                 .thenReturn(List.of(expo.getId()));
 
         scheduler.closeFinishedExpos();
@@ -72,7 +76,7 @@ class ExpoAutoCloseSchedulerTest extends IntegrationTestSupport {
         Channel channel = channelRepository.save(Channel.create(uniqueName(), uniqueUserId(), "desc"));
         Expo expo = expoRepository.save(publishedExpo(channel.getId()));
 
-        when(roundClient.finishedExpoIds(any(Instant.class), anyInt()))
+        when(roundClient.finishedExpoIds(any(Instant.class), anyLong(), anyInt()))
                 .thenReturn(List.of(expo.getId()));
 
         scheduler.closeFinishedExpos();
@@ -85,9 +89,34 @@ class ExpoAutoCloseSchedulerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("대상이 limit 보다 많으면 마지막 id 를 커서로 넘겨 끝까지 마감한다 - 앞쪽 limit 개만 반복되면 안 된다")
+    void 커서로_끝까지_마감() {
+        Channel channel = channelRepository.save(Channel.create(uniqueName(), uniqueUserId(), "desc"));
+        Expo first = expoRepository.save(publishedExpo(channel.getId()));
+        Expo second = expoRepository.save(publishedExpo(channel.getId()));
+        Expo third = expoRepository.save(publishedExpo(channel.getId()));
+
+        ExpoAutoCloseScheduler target = AopTestUtils.getTargetObject(scheduler);
+        Object originalLimit = ReflectionTestUtils.getField(target, "limit");
+        ReflectionTestUtils.setField(target, "limit", 2);
+        try {
+            when(roundClient.finishedExpoIds(any(Instant.class), eq(0L), anyInt()))
+                    .thenReturn(List.of(first.getId(), second.getId()));
+            when(roundClient.finishedExpoIds(any(Instant.class), eq(second.getId()), anyInt()))
+                    .thenReturn(List.of(third.getId()));
+
+            scheduler.closeFinishedExpos();
+        } finally {
+            ReflectionTestUtils.setField(target, "limit", originalLimit);
+        }
+
+        assertThat(expoRepository.findById(third.getId()).orElseThrow().getStatus()).isEqualTo(ExpoStatus.CLOSED);
+    }
+
+    @Test
     @DisplayName("finishedExpoIds 호출 실패 시 스케줄러가 예외를 던지지 않고 건너뛴다")
     void 호출_실패_시_건너뜀() {
-        when(roundClient.finishedExpoIds(any(Instant.class), anyInt()))
+        when(roundClient.finishedExpoIds(any(Instant.class), anyLong(), anyInt()))
                 .thenThrow(new RuntimeException("connection timeout"));
 
         org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> scheduler.closeFinishedExpos());

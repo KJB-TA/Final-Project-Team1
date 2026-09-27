@@ -71,8 +71,9 @@ public class InternalRoundController {
 
     @GetMapping("/finished-expos")
     public List<Long> finishedExpos(@RequestParam Instant before,
+                                    @RequestParam(defaultValue = "0") long afterExpoId,
                                     @RequestParam(defaultValue = "500") int limit) {
-        return roundService.finishedExpoIds(before, limit);
+        return roundService.finishedExpoIds(before, afterExpoId, limit);
     }
 
     /** 박람회별 가장 가까운 모집 마감일 일괄 조회. 모집마감일순 정렬 전용. */

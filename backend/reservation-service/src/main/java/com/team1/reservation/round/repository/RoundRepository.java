@@ -68,9 +68,13 @@ public interface RoundRepository extends JpaRepository<Round, Long> {
 
 
     // 삭제된 회차가 max(ends_at) 판정을 왜곡하면 안 된다.
-    @Query("select r.expoId from Round r where r.deletedAt is null "
+    // 이미 CLOSED 인 박람회도 계속 나오므로(이 Schema 는 박람회 상태를 모른다) afterExpoId 커서로 넘겨 받는다.
+    // 커서가 없으면 앞쪽 limit 개만 계속 돌아와 그 뒤 박람회는 영영 마감되지 않는다.
+    @Query("select r.expoId from Round r where r.deletedAt is null and r.expoId > :afterExpoId "
             + "group by r.expoId having max(r.endsAt) < :before order by r.expoId")
-    List<Long> findExpoIdsWithAllRoundsEndedBefore(@Param("before") Instant before, Pageable pageable);
+    List<Long> findExpoIdsWithAllRoundsEndedBefore(@Param("before") Instant before,
+                                                   @Param("afterExpoId") long afterExpoId,
+                                                   Pageable pageable);
 
     /** 박람회별 가장 가까운 모집 마감일(endsAt). now 이후 회차만 집계한다. */
     @Query("select new com.team1.reservation.round.dto.NearestDeadlineView(r.expoId, min(r.endsAt)) "

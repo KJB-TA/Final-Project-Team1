@@ -150,6 +150,18 @@ class SoftDeletedRoundVisibilityTest extends IntegrationTestSupport {
         assertThat(roundService.finishedExpoIds(now, 100)).contains(EXPO_ID);
     }
 
+    @Test
+    @DisplayName("자동 마감 대상은 afterExpoId 커서 뒤의 박람회만 돌려준다 - 앞쪽 limit 개만 반복되면 안 된다")
+    void finishedExpoIdsHonorsCursor() {
+        roundService.delete(EXPO_ID, roundId, OWNER);
+        roundService.delete(EXPO_ID, keptId, OWNER);
+        rounds.save(Round.create(EXPO_ID, now.minusSeconds(7200), now.minusSeconds(3600),
+                CAPACITY, FEE, now.minusSeconds(10800)));
+
+        assertThat(roundService.finishedExpoIds(now, EXPO_ID - 1, 100)).contains(EXPO_ID);
+        assertThat(roundService.finishedExpoIds(now, EXPO_ID, 100)).doesNotContain(EXPO_ID);
+    }
+
     // ---- 필터하지 않는다: 과거의 이력 ----
 
     @Test
