@@ -18,6 +18,7 @@ import com.team1.reservation.round.repository.RoundRepository;
 import com.team1.security.AuthenticatedUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -114,10 +115,20 @@ public class ReservationService {
                     "not enough capacity on round " + roundId + " for " + headcount);
         }
 
-        Reservation saved = reservations.save(Reservation.create(
-                reservationNos.generate(), roundId, expoId, user.userId(),
-                request.normalizedName(), request.normalizedPhone(),
-                headcount, amount, now));
+        Reservation saved;
+        try {
+            saved = reservations.save(Reservation.create(
+                    reservationNos.generate(), roundId, expoId, user.userId(),
+                    request.normalizedName(), request.normalizedPhone(),
+                    headcount, amount, now));
+        } catch (DataIntegrityViolationException e) {
+            // 위의 exists 검사를 동시 요청이 함께 통과한 경우다. 예외로 롤백돼 차감한 정원도 돌아간다.
+            if (isActiveHolderViolation(e)) {
+                throw new ApiException(ErrorCode.DUPLICATE_RESERVATION,
+                        "an active reservation already exists for round " + roundId);
+            }
+            throw e;
+        }
 
         if (amount == 0) {
             // 무료 회차는 결제할 것이 없다. PENDING 으로 두면 결제도 못 하는 예약이 10분 뒤
@@ -146,6 +157,11 @@ public class ReservationService {
                     reservation.getReservationNo(), TraceId.get(), e);
             throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE, "payment registration unavailable");
         }
+    }
+
+    private boolean isActiveHolderViolation(DataIntegrityViolationException e) {
+        String message = e.getMostSpecificCause().getMessage();
+        return message != null && message.contains("uk_reservations_active_holder");
     }
 
     private void requireMember(AuthenticatedUser user) {

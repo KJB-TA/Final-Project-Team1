@@ -41,7 +41,12 @@ class ExpireIfPendingTest extends IntegrationTestSupport {
     }
 
     private Reservation save(String no) {
-        return reservations.saveAndFlush(Reservation.create(no, roundId, EXPO_ID, 100L,
+        return save(no, 100L);
+    }
+
+    // 한 회원은 한 회차에 유효 예약을 하나만 가질 수 있다(V14). 같은 회차에 두 건이면 회원을 나눈다.
+    private Reservation save(String no, long userId) {
+        return reservations.saveAndFlush(Reservation.create(no, roundId, EXPO_ID, userId,
                 "홍길동", "01012345678", 2, 20000, CREATED));
     }
 
@@ -71,7 +76,7 @@ class ExpireIfPendingTest extends IntegrationTestSupport {
     @DisplayName("만료 시각을 지난 PENDING 만 후보로 나온다")
     void findsOnlyDuePending() {
         Reservation due = save("R-EXP-0003");
-        Reservation confirmed = save("R-EXP-0004");
+        Reservation confirmed = save("R-EXP-0004", 101L);
         confirmed.confirm(CREATED.plusSeconds(60));
         reservations.saveAndFlush(confirmed);
 
