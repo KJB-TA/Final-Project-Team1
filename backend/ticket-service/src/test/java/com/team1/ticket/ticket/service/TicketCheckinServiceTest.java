@@ -203,7 +203,7 @@ class TicketCheckinServiceTest {
     @DisplayName("checkin: 소유 주최자가 확정하면 USED 로 전이하고 사용 시각을 기록한다")
     void checkinTransitionsToUsed() {
         Ticket ticket = issuedTicket();
-        when(tickets.findById(anyLong())).thenReturn(Optional.of(ticket));
+        when(tickets.findByIdForUpdate(anyLong())).thenReturn(Optional.of(ticket));
         ownedExpo();
 
         CheckinResult result = service.checkin(1L, CheckinMethod.QR, OWNER);
@@ -216,7 +216,7 @@ class TicketCheckinServiceTest {
     @Test
     @DisplayName("checkin: 없는 티켓이면 404")
     void checkinRejectsUnknownTicket() {
-        when(tickets.findById(anyLong())).thenReturn(Optional.empty());
+        when(tickets.findByIdForUpdate(anyLong())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.checkin(1L, CheckinMethod.QR, OWNER))
                 .isInstanceOfSatisfying(ApiException.class,
@@ -228,7 +228,7 @@ class TicketCheckinServiceTest {
     void checkinRejectsAlreadyUsed() {
         Ticket ticket = issuedTicket();
         ticket.checkIn(NOW.minusSeconds(60));
-        when(tickets.findById(anyLong())).thenReturn(Optional.of(ticket));
+        when(tickets.findByIdForUpdate(anyLong())).thenReturn(Optional.of(ticket));
         ownedExpo();
 
         assertThatThrownBy(() -> service.checkin(1L, CheckinMethod.QR, OWNER))
@@ -240,7 +240,7 @@ class TicketCheckinServiceTest {
     @DisplayName("checkin: 다른 주최자면 403 이고 전이하지 않는다")
     void checkinRejectsNonOwner() {
         Ticket ticket = issuedTicket();
-        when(tickets.findById(anyLong())).thenReturn(Optional.of(ticket));
+        when(tickets.findByIdForUpdate(anyLong())).thenReturn(Optional.of(ticket));
         ownedExpo();
 
         assertThatThrownBy(() -> service.checkin(1L, CheckinMethod.QR, OTHER_ORGANIZER))
@@ -254,7 +254,7 @@ class TicketCheckinServiceTest {
     @DisplayName("checkin: 이력 기록이 실패해도 체크인은 성사된다 (이력은 부가 기능)")
     void checkinSurvivesLoggingFailure() {
         Ticket ticket = issuedTicket();
-        when(tickets.findById(anyLong())).thenReturn(Optional.of(ticket));
+        when(tickets.findByIdForUpdate(anyLong())).thenReturn(Optional.of(ticket));
         ownedExpo();
         doThrow(new RuntimeException("log db down"))
                 .when(checkinLogWriter).record(any(), any(), any(), any(), any());
@@ -269,7 +269,7 @@ class TicketCheckinServiceTest {
     @DisplayName("checkin: 박람회 조회 실패면 503(fail-closed)이고 전이하지 않는다")
     void checkinFailsClosedWhenExpoUnavailable() {
         Ticket ticket = issuedTicket();
-        when(tickets.findById(anyLong())).thenReturn(Optional.of(ticket));
+        when(tickets.findByIdForUpdate(anyLong())).thenReturn(Optional.of(ticket));
         when(expoClient.getExpo(EXPO_ID))
                 .thenThrow(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE, "expo-service unavailable"));
 
