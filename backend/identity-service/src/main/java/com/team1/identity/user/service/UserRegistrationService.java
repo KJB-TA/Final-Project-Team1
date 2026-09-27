@@ -23,14 +23,26 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class UserRegistrationService {
 
+    /**
+     * 이메일을 주지 않는 소셜 계정(카카오)에 붙이는 placeholder 주소의 도메인이다.
+     * 소셜 로그인은 같은 이메일 회원에 연결하므로, 이 주소로 먼저 가입해 두면 해당 소셜 계정이
+     * 처음 로그인할 때 그 회원에 연결돼 버린다. 그래서 일반 가입에서는 이 도메인을 받지 않는다.
+     */
+    public static final String SOCIAL_PLACEHOLDER_DOMAIN = "@social.expohub.local";
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
 
     @Transactional
     public User register(String email, String rawPassword, String name, Role role) {
+        String normalizedEmail = EmailNormalizer.normalize(email);
+        if (normalizedEmail != null && normalizedEmail.endsWith(SOCIAL_PLACEHOLDER_DOMAIN)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+
         User user = User.create(
-                EmailNormalizer.normalize(email),
+                normalizedEmail,
                 passwordEncoder.encode(rawPassword),
                 name,
                 role,

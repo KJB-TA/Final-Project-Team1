@@ -39,6 +39,11 @@ jwt:
   secret: ${JWT_SECRET:dev-only-not-a-real-secret-0123456789abcdef}
   access-token-expiration: 3600000
 
+# 구글 로그인 액세스 토큰이 우리 앱에 발급된 것인지(aud) 확인하는 OAuth Client ID. 프론트 VITE_GOOGLE_CLIENT_ID 와 같은 값.
+# 비어 있으면 어떤 토큰도 검증을 통과하지 못해 구글 로그인만 동작하지 않는다.
+google:
+  client-id: ${GOOGLE_CLIENT_ID:}
+
 # 카카오 로그인 인가 코드 교환에 쓰는 REST API 키. 비어 있으면 카카오 로그인만 동작하지 않는다.
 # client-secret: 카카오 콘솔에서 REST 키에 클라이언트 시크릿이 켜져 있으면 그 값도 넣어야 토큰이 발급된다.
 kakao:

@@ -45,7 +45,7 @@ class GoogleLoginServiceTest extends IntegrationTestSupport {
     void 신규_구글_계정은_회원으로_생성된다() {
         String email = uniqueEmail();
         when(googleApiClient.getUserInfo(anyString()))
-                .thenReturn(new GoogleUserInfoResponse("google-123", email, "구글사용자"));
+                .thenReturn(new GoogleUserInfoResponse("google-123", email, true, "구글사용자"));
 
         LoginResponse response = authService.googleLogin("access-token");
 
@@ -63,7 +63,7 @@ class GoogleLoginServiceTest extends IntegrationTestSupport {
         long usersBefore = userRepository.count();
 
         when(googleApiClient.getUserInfo(anyString()))
-                .thenReturn(new GoogleUserInfoResponse("google-456", email, "구글사용자"));
+                .thenReturn(new GoogleUserInfoResponse("google-456", email, true, "구글사용자"));
 
         LoginResponse response = authService.googleLogin("access-token");
 
@@ -77,7 +77,7 @@ class GoogleLoginServiceTest extends IntegrationTestSupport {
     void 재로그인은_중복을_만들지_않는다() {
         String email = uniqueEmail();
         when(googleApiClient.getUserInfo(anyString()))
-                .thenReturn(new GoogleUserInfoResponse("google-789", email, "구글사용자"));
+                .thenReturn(new GoogleUserInfoResponse("google-789", email, true, "구글사용자"));
 
         LoginResponse first = authService.googleLogin("access-token");
         long accountsAfterFirst = oauthAccountRepository.count();
@@ -99,5 +99,23 @@ class GoogleLoginServiceTest extends IntegrationTestSupport {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.SOCIAL_LOGIN_FAILED);
+    }
+
+    @Test
+    @DisplayName("구글이 이메일 소유를 확인하지 않았으면 기존 회원에 연결하지도, 새로 만들지도 않는다")
+    void 미확인_이메일은_거절된다() {
+        String email = uniqueEmail();
+        authService.signUp(new SignUpRequest(email, "password123", "기존회원"));
+        long usersBefore = userRepository.count();
+        long accountsBefore = oauthAccountRepository.count();
+        when(googleApiClient.getUserInfo(anyString()))
+                .thenReturn(new GoogleUserInfoResponse("google-unverified", email, false, "공격자"));
+
+        assertThatThrownBy(() -> authService.googleLogin("access-token"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.SOCIAL_LOGIN_FAILED);
+        assertThat(userRepository.count()).isEqualTo(usersBefore);
+        assertThat(oauthAccountRepository.count()).isEqualTo(accountsBefore);
     }
 }

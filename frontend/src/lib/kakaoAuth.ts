@@ -19,6 +19,9 @@ export function kakaoRedirectUri(): string {
 export async function requestKakaoAuthCode(): Promise<KakaoAuthResult> {
   if (!KAKAO_REST_KEY) throw new Error('카카오 로그인이 설정되지 않았습니다.')
   const redirectUri = kakaoRedirectUri()
+  // CSRF 방지용 state. 콜백에서 그대로 돌아와야 우리가 시작한 요청으로 보고 code 를 쓴다.
+  // 없으면 공격자가 자기 카카오 계정의 code 를 피해자 창에 흘려 넣어 공격자 계정으로 로그인시킬 수 있다.
+  const state = crypto.randomUUID()
   // 방안 B: 이메일은 비즈앱이라야 받을 수 있어 닉네임만 요청한다. 서버가 이메일 없으면 placeholder 로 처리.
   // prompt=login: 기존 카카오 세션을 그냥 재사용하지 않고 매번 로그인/계정 확인을 거치게 한다.
   const url =
@@ -27,6 +30,7 @@ export async function requestKakaoAuthCode(): Promise<KakaoAuthResult> {
     '&client_id=' + encodeURIComponent(KAKAO_REST_KEY) +
     '&redirect_uri=' + encodeURIComponent(redirectUri) +
     '&scope=' + encodeURIComponent('profile_nickname') +
+    '&state=' + encodeURIComponent(state) +
     '&prompt=login'
 
   const popup = window.open(url, 'kakao_login', 'width=480,height=640')
@@ -40,11 +44,13 @@ export async function requestKakaoAuthCode(): Promise<KakaoAuthResult> {
 
     function onMessage(e: MessageEvent) {
       if (e.origin !== window.location.origin) return
-      const data = e.data as { type?: string; code?: string; error?: string }
+      const data = e.data as { type?: string; code?: string; state?: string; error?: string }
       if (data?.type !== 'KAKAO_AUTH') return
       cleanup()
-      if (data.code) resolve({ code: data.code, redirectUri })
-      else reject(new Error(data.error || '카카오 인증에 실패했습니다.'))
+      if (data.error) reject(new Error(data.error))
+      else if (data.state !== state) reject(new Error('카카오 인증 상태값이 일치하지 않습니다.'))
+      else if (data.code) resolve({ code: data.code, redirectUri })
+      else reject(new Error('카카오 인증에 실패했습니다.'))
     }
 
     function cleanup() {

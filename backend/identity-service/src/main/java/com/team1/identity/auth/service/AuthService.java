@@ -94,10 +94,12 @@ public class AuthService {
     @Transactional
     public LoginResponse googleLogin(String googleAccessToken) {
         GoogleUserInfoResponse info = googleApiClient.getUserInfo(googleAccessToken);
-        String email = info == null ? null : info.email();
-        String name = info == null ? null : info.name();
-        String providerId = info == null ? null : info.id();
-        return loginWithSocial(PROVIDER_GOOGLE, providerId, email, name);
+        // 확인 안 된 이메일로는 연결도 생성도 하지 않는다. 연결하면 그 주소의 기존 회원을 가로채고,
+        // 생성하면 실제 주인이 나중에 가입하지 못하게 주소를 선점한다.
+        if (info == null || !Boolean.TRUE.equals(info.verifiedEmail())) {
+            throw new BusinessException(ErrorCode.SOCIAL_LOGIN_FAILED);
+        }
+        return loginWithSocial(PROVIDER_GOOGLE, info.id(), info.email(), info.name());
     }
 
     /**
@@ -124,13 +126,15 @@ public class AuthService {
         KakaoUserInfoResponse info = kakaoApiClient.getUserInfoByCode(code, redirectUri);
         Long id = info == null ? null : info.id();
         KakaoUserInfoResponse.KakaoAccount account = info == null ? null : info.kakaoAccount();
-        String email = account == null ? null : account.email();
+        // 카카오가 소유를 확인한 이메일만 쓴다. 확인 안 된 주소로 기존 회원에 연결되면 계정을 가로챈다.
+        String email = account == null || !Boolean.TRUE.equals(account.isEmailVerified()) ? null : account.email();
         String nickname = account == null || account.profile() == null ? null : account.profile().nickname();
         String providerId = id == null ? null : String.valueOf(id);
 
-        // 카카오 이메일 미제공 시 식별자 기반 placeholder 로 대체(방안 B).
+        // 카카오 이메일 미제공(또는 미확인) 시 식별자 기반 placeholder 로 대체(방안 B).
+        // 이 도메인은 일반 가입이 막혀 있어, placeholder 는 해당 카카오 계정만 가리킨다.
         if ((email == null || email.isBlank()) && providerId != null && !providerId.isBlank()) {
-            email = "kakao_" + providerId + "@social.expohub.local";
+            email = "kakao_" + providerId + UserRegistrationService.SOCIAL_PLACEHOLDER_DOMAIN;
         }
         return loginWithSocial(PROVIDER_KAKAO, providerId, email, nickname);
     }

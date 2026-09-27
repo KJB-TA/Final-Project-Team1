@@ -41,8 +41,12 @@ class KakaoLoginServiceTest extends IntegrationTestSupport {
     private KakaoApiClient kakaoApiClient;
 
     private static KakaoUserInfoResponse profile(long id, String email, String nickname) {
-        return new KakaoUserInfoResponse(id,
-                new KakaoUserInfoResponse.KakaoAccount(email, new KakaoUserInfoResponse.Profile(nickname)));
+        return profile(id, email, true, nickname);
+    }
+
+    private static KakaoUserInfoResponse profile(long id, String email, boolean emailVerified, String nickname) {
+        return new KakaoUserInfoResponse(id, new KakaoUserInfoResponse.KakaoAccount(
+                email, emailVerified, new KakaoUserInfoResponse.Profile(nickname)));
     }
 
     @Test
@@ -112,5 +116,31 @@ class KakaoLoginServiceTest extends IntegrationTestSupport {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.SOCIAL_LOGIN_FAILED);
+    }
+
+    @Test
+    @DisplayName("카카오가 확인하지 않은 이메일이면 같은 이메일 회원에 연결하지 않고 placeholder 로 만든다")
+    void 미확인_이메일은_기존_회원에_연결되지_않는다() {
+        String email = uniqueEmail();
+        SignUpResponse existing = authService.signUp(new SignUpRequest(email, "password123", "기존회원"));
+        when(kakaoApiClient.getUserInfoByCode(anyString(), anyString()))
+                .thenReturn(profile(1005L, email, false, "공격자"));
+
+        LoginResponse response = authService.kakaoLogin("code", "http://localhost:5173/auth/kakao/callback");
+
+        AuthenticatedUser authenticated = new JwtValidator(TEST_JWT_SECRET).validate(response.accessToken());
+        assertThat(authenticated.userId()).isNotEqualTo(existing.userId());
+        assertThat(userRepository.findByEmail("kakao_1005@social.expohub.local")).isPresent();
+    }
+
+    @Test
+    @DisplayName("placeholder 도메인으로는 일반 가입할 수 없어, 카카오 계정의 placeholder 를 미리 선점할 수 없다")
+    void placeholder_도메인은_가입이_막힌다() {
+        assertThatThrownBy(() -> authService.signUp(
+                new SignUpRequest("kakao_1006@social.expohub.local", "password123", "선점시도")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_REQUEST);
+        assertThat(userRepository.findByEmail("kakao_1006@social.expohub.local")).isEmpty();
     }
 }
