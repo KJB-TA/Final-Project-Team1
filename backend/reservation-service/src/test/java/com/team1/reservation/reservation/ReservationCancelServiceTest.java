@@ -1,5 +1,6 @@
 package com.team1.reservation.reservation;
 
+import com.team1.payment.PaymentApprovalResult;
 import com.team1.payment.PaymentService;
 import com.team1.payment.PaymentStatus;
 import com.team1.payment.PaymentTransaction;
@@ -335,6 +336,45 @@ class ReservationCancelServiceTest {
         service.cancel(RESERVATION_ID, MEMBER);
 
         verify(ticketClient).revokeTicket(RESERVATION_ID);
+    }
+
+    // ── 결제창 이후 PENDING 취소 ─────────────────────────────────────────────
+
+    /** 결제창에서 결제는 끝났지만 웹훅·확정 호출이 아직 안 와서 예약도 결제도 PENDING 인 상황. */
+    private void givenPendingReservation() {
+        Reservation reservation = givenRoundStartingIn(Duration.ofHours(2), 10000);
+        ReflectionTestUtils.setField(reservation, "status", ReservationStatus.PENDING);
+        ReflectionTestUtils.setField(reservation, "confirmedAt", null);
+        givenPayment(PaymentStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("PENDING 취소 시 PG 가 PAID 면 환불 기한과 무관하게 환불한다 - 확정된 적 없는 예약이다")
+    void refundsPaidPendingReservationOnCancel() {
+        givenPendingReservation();
+        doAnswer(call -> {
+            ReflectionTestUtils.setField(payment, "status", PaymentStatus.PAID);
+            return PaymentApprovalResult.success(AMOUNT);
+        }).when(paymentService).confirm(RESERVATION_ID);
+        whenRefundedBecomes(PaymentStatus.CANCELLED);
+
+        CancelReservationResponse response = service.cancel(RESERVATION_ID, MEMBER);
+
+        assertThat(response.refundState()).isEqualTo(RefundState.REFUNDED);
+        verify(paymentService).cancel(RESERVATION_ID, "user cancellation");
+    }
+
+    @Test
+    @DisplayName("PENDING 취소 시 PG 결과를 모르면(결제창만 닫은 경우 포함) 지금처럼 환불 없이 취소한다")
+    void cancelsPendingWithoutRefundWhenPgUnknown() {
+        givenPendingReservation();
+        when(paymentService.confirm(RESERVATION_ID)).thenReturn(PaymentApprovalResult.unknown("PG 거래없음"));
+
+        CancelReservationResponse response = service.cancel(RESERVATION_ID, MEMBER);
+
+        assertThat(response.status()).isEqualTo("CANCELLED");
+        assertThat(response.refundState()).isEqualTo(RefundState.NOT_APPLICABLE);
+        verify(paymentService, never()).cancel(anyLong(), anyString());
     }
 
     @Test

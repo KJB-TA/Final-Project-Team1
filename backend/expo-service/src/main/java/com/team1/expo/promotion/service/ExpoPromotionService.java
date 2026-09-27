@@ -102,7 +102,7 @@ public class ExpoPromotionService {
         }
         // 결제 취소 등으로 남은 PENDING은 자동 정리
         promotionRepository.findByExpoIdAndStatus(request.expoId(), ExpoPromotionStatus.PENDING)
-                .ifPresent(p -> p.cancel(clock));
+                .ifPresent(this::cancelStalePending);
 
         ExpoPromotion promotion = promotionRepository.save(
                 ExpoPromotion.create(request.expoId(), BANNER_PRICE, clock));
@@ -160,6 +160,20 @@ public class ExpoPromotionService {
             log.warn("promotion webhook not applied promotionId={} code={}", promotion.getId(), e.getErrorCode());
         }
         return true;
+    }
+
+    // 결제는 끝났는데 웹훅이 아직 안 온 PENDING 일 수 있다. 그냥 취소하면 뒤늦은 웹훅이 이미 취소된
+    // 배너라 반영되지 않아 돈만 남는다. PG 를 먼저 조회해 결제됐으면 환불하고 내린다.
+    // 모름(결제창만 열고 닫은 경우도 여기다)이면 지금처럼 취소만 한다 - 막으면 재신청이 전부 실패한다.
+    private void cancelStalePending(ExpoPromotion stale) {
+        if (paymentTransactionRepository.findByRefId(stale.getId()).isPresent()) {
+            PaymentApprovalResult result = paymentService.confirm(stale.getId());
+            if (result.outcome() == PaymentApprovalOutcome.SUCCESS) {
+                log.warn("stale pending promotion was paid, refunding promotionId={}", stale.getId());
+                paymentService.cancel(stale.getId(), "배너 재신청으로 이전 결제 환불");
+            }
+        }
+        stale.cancel(clock);
     }
 
     // 결제 확인 경로(주최자 화면·웹훅)가 모두 이 함수로 상태를 바꾼다
