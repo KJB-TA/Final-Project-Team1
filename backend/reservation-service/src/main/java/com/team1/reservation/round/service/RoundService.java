@@ -93,8 +93,11 @@ public class RoundService {
     public Round update(Long expoId, Long roundId, AuthenticatedUser user, UpdateRoundRequest request) {
         requireOwnership(expoId, user);
 
+        // 삭제된 회차는 없는 회차로 본다. 거르지 않으면 아래 조건부 UPDATE 가 0 행이 되어
+        // 실제 이유와 다른 ROUND_HAS_RESERVATIONS 가 나간다(삭제 경로와 같은 판정).
         Round round = rounds.findById(roundId)
                 .filter(r -> Objects.equals(r.getExpoId(), expoId))
+                .filter(r -> !r.isDeleted())
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "round not found: " + roundId));
 
         Instant now = clock.instant();

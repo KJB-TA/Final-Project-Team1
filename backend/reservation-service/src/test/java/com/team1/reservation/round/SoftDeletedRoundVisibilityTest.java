@@ -15,6 +15,7 @@ import com.team1.reservation.reservation.service.MyReservationService;
 import com.team1.reservation.reservation.service.ReservationCancelService;
 import com.team1.reservation.reservation.service.ReservationPaymentService;
 import com.team1.reservation.reservation.service.ReservationService;
+import com.team1.reservation.round.dto.UpdateRoundRequest;
 import com.team1.reservation.round.entity.Round;
 import com.team1.reservation.round.repository.RoundRepository;
 import com.team1.reservation.round.service.RoundService;
@@ -125,6 +126,18 @@ class SoftDeletedRoundVisibilityTest extends IntegrationTestSupport {
 
         assertThatThrownBy(() -> reservationService.create(roundId, MEMBER,
                 new CreateReservationRequest(1, "홍길동", "01012345678")))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("삭제된 회차를 수정하면 404 다 - 예약이 있다는 엉뚱한 오류(ROUND_HAS_RESERVATIONS)가 나가면 안 된다")
+    void rejectsUpdateOfDeletedRound() {
+        roundService.delete(EXPO_ID, roundId, OWNER);
+        Instant startsAt = now.plus(10, ChronoUnit.DAYS);
+
+        assertThatThrownBy(() -> roundService.update(EXPO_ID, roundId, OWNER,
+                new UpdateRoundRequest(startsAt, startsAt.plus(2, ChronoUnit.HOURS), CAPACITY, FEE)))
                 .isInstanceOfSatisfying(ApiException.class,
                         e -> assertThat(e.code()).isEqualTo(ErrorCode.NOT_FOUND));
     }

@@ -14,6 +14,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.List;
@@ -38,6 +40,9 @@ class CheckinLogTest extends IntegrationTestSupport {
 
     @Autowired
     private TicketCheckinService checkinService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void setUp() {
@@ -64,6 +69,20 @@ class CheckinLogTest extends IntegrationTestSupport {
         assertThat(logs.get(0).getActorUserId()).isEqualTo(OWNER_ID);
         assertThat(logs.get(0).getMethod()).isEqualTo(CheckinMethod.RESERVATION_NO);
         assertThat(logs.get(0).getCreatedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("체크인이 롤백되면 이력도 남지 않는다 - 이력은 커밋된 뒤에만 쓴다")
+    void noLogWhenCheckinRollsBack() {
+        Ticket ticket = issued();
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+        tx.executeWithoutResult(status -> {
+            checkinService.checkin(ticket.getId(), CheckinMethod.QR, OWNER);
+            status.setRollbackOnly();
+        });
+
+        assertThat(checkinLogs.findByTicketIdOrderByCreatedAtAsc(ticket.getId())).isEmpty();
     }
 
     @Test
