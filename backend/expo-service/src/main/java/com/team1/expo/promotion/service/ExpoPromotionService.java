@@ -12,7 +12,6 @@ import com.team1.expo.promotion.dto.ApplyPromotionRequest;
 import com.team1.expo.promotion.dto.ApplyPromotionResponse;
 import com.team1.expo.promotion.dto.InternalPromotionPaymentResponse;
 import com.team1.payment.PaymentIdGenerator;
-import com.team1.payment.PaymentStatus;
 import com.team1.payment.PaymentTransaction;
 import com.team1.payment.PgCancelResult;
 import com.team1.payment.PgClient;
@@ -160,14 +159,10 @@ public class ExpoPromotionService {
                 .toList();
     }
 
-    private static final List<PaymentStatus> SETTLEMENT_STATUSES =
-            List.of(PaymentStatus.PAID, PaymentStatus.CANCELLED);
-
-    /** 계약 2 — Settlement-Service가 정산 집계에 사용. PAID·CANCELLED만 반환한다. */
+    /** 계약 2 — Settlement-Service가 정산 집계에 사용. 결제·환불 시각이 구간에 든 건을 반환한다. */
     @Transactional(readOnly = true)
     public List<InternalPromotionPaymentResponse> getPaymentsForSettlement(Instant from, Instant to) {
-        List<PaymentTransaction> txs =
-                paymentTransactionRepository.findByStatusInAndUpdatedAtBetween(SETTLEMENT_STATUSES, from, to);
+        List<PaymentTransaction> txs = paymentTransactionRepository.findSettlementEvents(from, to);
 
         Set<Long> promotionIds = txs.stream().map(PaymentTransaction::getRefId).collect(Collectors.toSet());
         Map<Long, Long> promotionToExpoId = promotionRepository.findAllById(promotionIds).stream()

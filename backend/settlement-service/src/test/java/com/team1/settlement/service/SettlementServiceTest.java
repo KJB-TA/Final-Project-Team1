@@ -62,9 +62,19 @@ class SettlementServiceTest {
         return new ReservationPaymentItem("p-" + day, amount, "PAID", at, null, at, 1L, expoId);
     }
 
+    // 지난달(2026-08-01)에 결제되고 day 에 환불된 건 - 조회 기간엔 환불만 들어온다.
     private ReservationPaymentItem cancelled(String day, int amount, Long expoId) {
-        Instant at = LocalDate.parse(day).atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).plusHours(12).toInstant();
-        return new ReservationPaymentItem("c-" + day, amount, "CANCELLED", null, at, at, 1L, expoId);
+        return paidThenCancelled("2026-08-01", day, amount, expoId);
+    }
+
+    private ReservationPaymentItem paidThenCancelled(String paidDay, String cancelDay, int amount, Long expoId) {
+        Instant paidAt = noonKst(paidDay);
+        Instant cancelledAt = noonKst(cancelDay);
+        return new ReservationPaymentItem("c-" + cancelDay, amount, "CANCELLED", paidAt, cancelledAt, cancelledAt, 1L, expoId);
+    }
+
+    private Instant noonKst(String day) {
+        return LocalDate.parse(day).atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).plusHours(12).toInstant();
     }
 
     @Test
@@ -136,7 +146,7 @@ class SettlementServiceTest {
                 paid("2026-09-02", 5000, 1L),
                 paid("2026-09-03", 8000, 2L)));
         when(expoPromotionPaymentClient.getPayments(any(), any())).thenReturn(List.of(
-                new ExpoPromotionPaymentItem("promo-1", 20000, Instant.parse("2026-09-04T00:00:00Z"), "PAID", 2L)));
+                new ExpoPromotionPaymentItem("promo-1", 20000, Instant.parse("2026-09-04T00:00:00Z"), null, "PAID", 2L)));
         when(expoDirectoryClient.titles(any())).thenReturn(Map.of(1L, "IT 박람회", 2L, "뷰티 박람회"));
 
         AdminSettlementResponse result = service.getSettlement(SettlementPeriod.MONTH, LocalDate.of(2026, 9, 1), false);
@@ -219,6 +229,90 @@ class SettlementServiceTest {
         AdminSettlementResponse result = service.getSettlement(SettlementPeriod.MONTH, LocalDate.of(2026, 9, 1), true);
 
         assertThat(result.aiSummary()).isEqualTo("이번 달 매출은 10,000원입니다.");
+    }
+
+    // ---- 사건 시각 기준 집계 (결제는 결제 시각, 환불은 환불 시각이 속한 기간) ----
+
+    @Test
+    @DisplayName("지난달 결제·이번 달 환불 - 지난달 매출은 그대로 남고, 이번 달엔 환불만 잡힌다")
+    void refundDoesNotRewritePastRevenue() {
+        ReservationPaymentItem item = paidThenCancelled("2026-08-20", "2026-09-05", 10000, 1L);
+        when(reservationPaymentClient.getPayments(any(), any())).thenReturn(List.of(item));
+
+        AdminSettlementResponse august = service.getSettlement(SettlementPeriod.MONTH, LocalDate.of(2026, 8, 1), false);
+        AdminSettlementResponse september = service.getSettlement(SettlementPeriod.MONTH, LocalDate.of(2026, 9, 1), false);
+
+        assertThat(august.totalRevenue()).isEqualTo(10000);
+        assertThat(august.totalRefund()).isZero();
+        assertThat(september.totalRevenue()).isZero();
+        assertThat(september.totalRefund()).isEqualTo(10000);
+    }
+
+    @Test
+    @DisplayName("같은 달에 결제하고 환불하면 매출과 환불이 둘 다 잡혀 순매출이 0 이다")
+    void sameMonthPayAndRefundNetsToZero() {
+        when(reservationPaymentClient.getPayments(any(), any())).thenReturn(List.of(
+                paidThenCancelled("2026-09-03", "2026-09-10", 10000, 1L)));
+
+        AdminSettlementResponse result = service.getSettlement(SettlementPeriod.MONTH, LocalDate.of(2026, 9, 1), false);
+
+        assertThat(result.totalRevenue()).isEqualTo(10000);
+        assertThat(result.totalRefund()).isEqualTo(10000);
+        assertThat(result.netRevenue()).isZero();
+        assertThat(findBucket(result.buckets(), "2026-09-03").revenue()).isEqualTo(10000);
+        assertThat(findBucket(result.buckets(), "2026-09-10").refund()).isEqualTo(10000);
+    }
+
+    @Test
+    @DisplayName("결제된 적 없이 취소된 건은 환불로 세지 않는다")
+    void cancelWithoutPaymentIsNotRefund() {
+        Instant at = noonKst("2026-09-10");
+        when(reservationPaymentClient.getPayments(any(), any())).thenReturn(List.of(
+                new ReservationPaymentItem("never-paid", 10000, "CANCELLED", null, at, at, 1L, 1L)));
+
+        AdminSettlementResponse result = service.getSettlement(SettlementPeriod.MONTH, LocalDate.of(2026, 9, 1), false);
+
+        assertThat(result.totalRefund()).isZero();
+        assertThat(result.reservationRefundCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("환불이 실패해 재시도 중인 결제는 아직 매출이다")
+    void refundFailedStillCountsAsRevenue() {
+        Instant paidAt = noonKst("2026-09-10");
+        when(reservationPaymentClient.getPayments(any(), any())).thenReturn(List.of(
+                new ReservationPaymentItem("refund-failed", 10000, "REFUND_FAILED", paidAt, null, paidAt, 1L, 1L)));
+
+        AdminSettlementResponse result = service.getSettlement(SettlementPeriod.MONTH, LocalDate.of(2026, 9, 1), false);
+
+        assertThat(result.totalRevenue()).isEqualTo(10000);
+        assertThat(result.totalRefund()).isZero();
+    }
+
+    @Test
+    @DisplayName("프로모션 환불도 결제 시각이 아니라 환불 시각의 칸에 들어간다")
+    void promotionRefundUsesCancelledAt() {
+        when(reservationPaymentClient.getPayments(any(), any())).thenReturn(List.of());
+        when(expoPromotionPaymentClient.getPayments(any(), any())).thenReturn(List.of(
+                new ExpoPromotionPaymentItem("promo-c", 9900, noonKst("2026-09-02"), noonKst("2026-09-20"), "CANCELLED", 1L)));
+
+        AdminSettlementResponse result = service.getSettlement(SettlementPeriod.MONTH, LocalDate.of(2026, 9, 1), false);
+
+        assertThat(findBucket(result.buckets(), "2026-09-02").revenue()).isEqualTo(9900);
+        assertThat(findBucket(result.buckets(), "2026-09-02").refund()).isZero();
+        assertThat(findBucket(result.buckets(), "2026-09-20").refund()).isEqualTo(9900);
+    }
+
+    @Test
+    @DisplayName("다음 기간 0시 정각 결제는 이번 기간에 넣지 않는다 - [from, to) 반열린 구간")
+    void excludesPaymentAtExclusiveUpperBound() {
+        Instant nextMonthStart = Instant.parse("2026-09-30T15:00:00Z"); // KST 2026-10-01 00:00
+        when(reservationPaymentClient.getPayments(any(), any())).thenReturn(List.of(
+                new ReservationPaymentItem("edge", 10000, "PAID", nextMonthStart, null, nextMonthStart, 1L, 1L)));
+
+        AdminSettlementResponse result = service.getSettlement(SettlementPeriod.MONTH, LocalDate.of(2026, 9, 1), false);
+
+        assertThat(result.totalRevenue()).isZero();
     }
 
     private SettlementBucket findBucket(List<SettlementBucket> buckets, String label) {

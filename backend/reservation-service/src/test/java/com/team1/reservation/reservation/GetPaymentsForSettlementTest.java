@@ -56,7 +56,7 @@ class GetPaymentsForSettlementTest {
     @Test
     @DisplayName("결제의 refId(예약 id)로 예약을 찾아 expoId를 붙인다")
     void attachesExpoIdFromReservation() {
-        when(payments.findByStatusInAndUpdatedAtBetween(any(), any(), any()))
+        when(payments.findSettlementEvents(any(), any()))
                 .thenReturn(List.of(paidTx(42L)));
         when(reservations.findAllById(List.of(42L))).thenReturn(List.of(reservationWithId(42L, 7L)));
 
@@ -71,7 +71,7 @@ class GetPaymentsForSettlementTest {
     @Test
     @DisplayName("예약이 이미 지워졌거나 못 찾아도 결제 자체는 빠뜨리지 않는다 - expoId만 null")
     void missingReservationLeavesExpoIdNull() {
-        when(payments.findByStatusInAndUpdatedAtBetween(any(), any(), any()))
+        when(payments.findSettlementEvents(any(), any()))
                 .thenReturn(List.of(paidTx(99L)));
         when(reservations.findAllById(List.of(99L))).thenReturn(List.of());
 

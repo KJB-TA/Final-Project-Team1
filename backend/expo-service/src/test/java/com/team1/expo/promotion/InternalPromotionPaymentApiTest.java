@@ -79,6 +79,23 @@ class InternalPromotionPaymentApiTest extends ApiTestSupport {
     }
 
     @Test
+    @DisplayName("지난달 결제·이번 달 환불 건은 두 달 조회 모두에 나오고 cancelledAt 을 싣는다")
+    void 결제월과_환불월_모두_반환() {
+        long expoId = createExpo();
+        paidThenCancelledTx(expoId, Instant.parse("2026-08-20T00:00:00Z"), Instant.parse("2026-09-05T00:00:00Z"));
+
+        JsonNode august = get("/internal/expo-promotions/payments?from=2026-08-01T00:00:00Z&to=2026-09-01T00:00:00Z",
+                TEST_INTERNAL_TOKEN).getBody();
+        JsonNode september = get("/internal/expo-promotions/payments?from=" + FROM + "&to=" + TO,
+                TEST_INTERNAL_TOKEN).getBody();
+
+        assertThat(findByExpo(august, expoId)).isNotNull();
+        JsonNode inSeptember = findByExpo(september, expoId);
+        assertThat(inSeptember).isNotNull();
+        assertThat(inSeptember.path("cancelledAt").asText()).startsWith("2026-09-05");
+    }
+
+    @Test
     @DisplayName("내부 토큰 없이 호출하면 401을 반환한다")
     void 내부_토큰_없이_호출_거절() {
         ResponseEntity<JsonNode> response = get(
@@ -124,6 +141,23 @@ class InternalPromotionPaymentApiTest extends ApiTestSupport {
         tx.markPaid("PG-TX-C-" + p.getId(), "0000", cancelledAt.minusSeconds(60));
         tx.markCancelled(cancelledAt);
         paymentTransactionRepository.save(tx);
+    }
+
+    private void paidThenCancelledTx(long expoId, Instant paidAt, Instant cancelledAt) {
+        ExpoPromotion p = ExpoPromotion.create(expoId, 9_900, Clock.systemUTC());
+        p.confirm(Clock.fixed(paidAt, java.time.ZoneOffset.UTC));
+        promotionRepository.save(p);
+        PaymentTransaction tx = PaymentTransaction.create(p.getId(), "PAY-PC-" + p.getId(), 9_900, paidAt);
+        tx.markPaid("PG-TX-PC-" + p.getId(), "0000", paidAt);
+        tx.markCancelled(cancelledAt);
+        paymentTransactionRepository.save(tx);
+    }
+
+    private JsonNode findByExpo(JsonNode list, long expoId) {
+        for (JsonNode node : list) {
+            if (node.path("expoId").asLong() == expoId) return node;
+        }
+        return null;
     }
 
     private void pendingTx(long expoId) {

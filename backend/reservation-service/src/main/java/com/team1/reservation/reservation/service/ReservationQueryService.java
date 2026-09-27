@@ -1,6 +1,5 @@
 package com.team1.reservation.reservation.service;
 
-import com.team1.payment.PaymentStatus;
 import com.team1.reservation.reservation.dto.AttendeeResponse;
 import com.team1.reservation.reservation.dto.InternalReservationPaymentResponse;
 import com.team1.reservation.reservation.dto.ReservationSummaryResponse;
@@ -79,9 +78,7 @@ public class ReservationQueryService {
     /** 정산의 박람회별 집계는 결제 트랜잭션엔 없는 expoId 가 필요해, 예약을 일괄 조회해 붙인다. */
     @Transactional(readOnly = true)
     public List<InternalReservationPaymentResponse> getPaymentsForSettlement(Instant from, Instant to) {
-        Set<PaymentStatus> statuses = EnumSet.of(PaymentStatus.PAID, PaymentStatus.CANCELLED);
-        List<com.team1.payment.PaymentTransaction> found =
-                payments.findByStatusInAndUpdatedAtBetween(statuses, from, to);
+        List<com.team1.payment.PaymentTransaction> found = payments.findSettlementEvents(from, to);
 
         List<Long> reservationIds = found.stream()
                 .map(com.team1.payment.PaymentTransaction::getRefId)

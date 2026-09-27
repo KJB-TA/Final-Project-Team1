@@ -122,10 +122,8 @@ public class RoundService {
     /**
      * 회차 삭제(S9-3). 소프트 삭제이며 활성 예약이 0건이고 아직 시작하지 않은 회차만 지운다.
      *
-     * <p><b>마지막 살아있는 회차라면 박람회를 먼저 비공개로 바꾼 뒤 지운다.</b>
-     * rounds 와 expos.status 는 다른 Service 소유이고 HTTP 에는 원자성이 없다. 중간에 실패할 때
-     * 남는 상태가 덜 나쁜 쪽을 고른 것이다 - 삭제가 먼저면 "회차 0개인 PUBLISHED 박람회" 가 되고,
-     * 비공개가 먼저면 "회차는 있는데 비공개" 라 주최자가 다시 공개하면 끝난다.
+     * <p>되돌릴 수 있는 로컬 삭제를 먼저, 되돌릴 수 없는 원격 비공개를 나중에 한다.
+     * 비공개 호출이 실패하면 예외로 트랜잭션이 롤백돼 삭제도 없던 일이 된다.
      */
     @Transactional
     public void delete(Long expoId, Long roundId, AuthenticatedUser user) {
@@ -142,16 +140,16 @@ public class RoundService {
                     "round has already started: " + roundId);
         }
 
-        // 지금 지우는 것이 마지막 살아있는 회차이고 공개 중이면, 비공개가 먼저다.
-        // 실패하면 예외가 올라가 삭제 자체가 일어나지 않는다(fail-closed).
-        if (EXPO_PUBLISHED.equals(expo.status())
-                && rounds.countByExpoIdAndDeletedAtIsNull(expoId) == 1) {
-            expoClient.unpublish(expoId);
-        }
-
+        // 조건부 UPDATE 가 행 잠금을 잡으므로 커밋 전까지 이 회차에 새 예약이 끼어들지 못한다.
         if (rounds.softDeleteIfNoReservation(roundId, now) == 0) {
             throw new ApiException(ErrorCode.ROUND_HAS_RESERVATIONS,
                     "round has active reservations: " + roundId);
+        }
+
+        // 방금 지운 것이 마지막 회차이고 공개 중이면 비공개로 바꾼다. 실패하면 위 삭제까지 롤백된다.
+        if (EXPO_PUBLISHED.equals(expo.status())
+                && rounds.countByExpoIdAndDeletedAtIsNull(expoId) == 0) {
+            expoClient.unpublish(expoId);
         }
     }
 
