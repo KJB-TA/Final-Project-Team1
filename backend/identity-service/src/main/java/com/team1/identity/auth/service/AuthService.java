@@ -1,11 +1,16 @@
 package com.team1.identity.auth.service;
 
+import com.team1.identity.auth.dto.GoogleUserInfoResponse;
+import com.team1.identity.auth.dto.KakaoUserInfoResponse;
+import com.team1.identity.auth.dto.NaverUserInfoResponse;
 import com.team1.identity.auth.dto.LoginRequest;
 import com.team1.identity.auth.dto.LoginResponse;
 import com.team1.identity.auth.dto.SignUpRequest;
 import com.team1.identity.auth.dto.SignUpResponse;
+import com.team1.identity.auth.entity.OauthAccount;
 import com.team1.identity.auth.jwt.IssuedToken;
 import com.team1.identity.auth.jwt.JwtTokenProvider;
+import com.team1.identity.auth.repository.OauthAccountRepository;
 import com.team1.identity.common.exception.BusinessException;
 import com.team1.identity.common.exception.ErrorCode;
 import com.team1.identity.common.util.EmailNormalizer;
@@ -17,6 +22,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -30,10 +38,19 @@ public class AuthService {
     private static final String DUMMY_PASSWORD_HASH =
             "$2a$12$xtlew4uuJuhTgLn55.5hl.7WZcZ1FZ8xHglmBrAICjFRun3ZJLKWu";
 
+    private static final String PROVIDER_GOOGLE = "GOOGLE";
+    private static final String PROVIDER_NAVER = "NAVER";
+    private static final String PROVIDER_KAKAO = "KAKAO";
+
     private final UserRegistrationService userRegistrationService;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final GoogleApiClient googleApiClient;
+    private final NaverApiClient naverApiClient;
+    private final KakaoApiClient kakaoApiClient;
+    private final OauthAccountRepository oauthAccountRepository;
+    private final Clock clock;
 
     public SignUpResponse signUp(SignUpRequest request) {
         User user = userRegistrationService.register(
@@ -67,5 +84,97 @@ public class AuthService {
 
         IssuedToken token = jwtTokenProvider.issue(user.getId(), user.primaryRole());
         return new LoginResponse(token.accessToken(), "Bearer", token.expiresAt());
+    }
+
+    /**
+     * 구글 로그인. 프론트가 받은 액세스 토큰으로 구글 userinfo 를 조회해 신원을 확인한 뒤,
+     * 이미 연결된 계정이면 그 회원으로, 처음이면 같은 이메일 회원에 연결하거나 새로 만든다.
+     * 이후는 일반 로그인과 똑같은 우리 JWT 를 발급한다.
+     */
+    @Transactional
+    public LoginResponse googleLogin(String googleAccessToken) {
+        GoogleUserInfoResponse info = googleApiClient.getUserInfo(googleAccessToken);
+        String email = info == null ? null : info.email();
+        String name = info == null ? null : info.name();
+        String providerId = info == null ? null : info.id();
+        return loginWithSocial(PROVIDER_GOOGLE, providerId, email, name);
+    }
+
+    /**
+     * 네이버 로그인. 프론트가 받은 액세스 토큰으로 네이버 사용자 정보를 조회한다.
+     * 네이버는 이메일을 주므로 구글과 동일하게 이메일 기준으로 연결·생성한다.
+     */
+    @Transactional
+    public LoginResponse naverLogin(String naverAccessToken) {
+        NaverUserInfoResponse info = naverApiClient.getUserInfo(naverAccessToken);
+        NaverUserInfoResponse.Response r = info == null ? null : info.response();
+        String email = r == null ? null : r.email();
+        String name = r == null ? null : r.name();
+        String providerId = r == null ? null : r.id();
+        return loginWithSocial(PROVIDER_NAVER, providerId, email, name);
+    }
+
+    /**
+     * 카카오 로그인. 카카오는 비즈앱이 아니면 이메일을 주지 않는다(닉네임만).
+     * 방안 B: 이메일을 못 받으면 카카오 식별자 기반 placeholder 이메일로 로그인시킨다.
+     * placeholder 는 카카오 id 로 고정돼 재로그인 시 같은 회원을 가리킨다.
+     */
+    @Transactional
+    public LoginResponse kakaoLogin(String code, String redirectUri) {
+        KakaoUserInfoResponse info = kakaoApiClient.getUserInfoByCode(code, redirectUri);
+        Long id = info == null ? null : info.id();
+        KakaoUserInfoResponse.KakaoAccount account = info == null ? null : info.kakaoAccount();
+        String email = account == null ? null : account.email();
+        String nickname = account == null || account.profile() == null ? null : account.profile().nickname();
+        String providerId = id == null ? null : String.valueOf(id);
+
+        // 카카오 이메일 미제공 시 식별자 기반 placeholder 로 대체(방안 B).
+        if ((email == null || email.isBlank()) && providerId != null && !providerId.isBlank()) {
+            email = "kakao_" + providerId + "@social.expohub.local";
+        }
+        return loginWithSocial(PROVIDER_KAKAO, providerId, email, nickname);
+    }
+
+    /*
+     * 제공자 공통 처리. 이미 연결된 소셜 계정이면 그 회원으로, 처음이면 같은 이메일 회원에
+     * 연결하거나 새로 만든 뒤, 일반 로그인과 똑같은 우리 JWT 를 발급한다.
+     * 이메일은 필수다(방안 A) — 없으면 실패로 처리해 users.email(NOT NULL·UNIQUE)을 지킨다.
+     */
+    private LoginResponse loginWithSocial(String provider, String providerId, String email, String name) {
+        if (providerId == null || providerId.isBlank() || email == null || email.isBlank()) {
+            throw new BusinessException(ErrorCode.SOCIAL_LOGIN_FAILED);
+        }
+
+        User user = oauthAccountRepository.findByProviderAndProviderId(provider, providerId)
+                .map(OauthAccount::getUser)
+                .orElseGet(() -> linkOrCreateSocialUser(provider, providerId, email, name));
+
+        IssuedToken token = jwtTokenProvider.issue(user.getId(), user.primaryRole());
+        return new LoginResponse(token.accessToken(), "Bearer", token.expiresAt());
+    }
+
+    /*
+     * 이 소셜 계정이 처음 들어온 경우다. 같은 이메일로 가입한 회원이 있으면 그 회원에 연결하고,
+     * 없으면 비밀번호 없는 소셜 회원(USER)을 새로 만든다. 그런 뒤 연결 기록을 남긴다.
+     */
+    private User linkOrCreateSocialUser(String provider, String providerId, String rawEmail, String name) {
+        String email = EmailNormalizer.normalize(rawEmail);
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        User user = userRepository.findByEmail(email)
+                .orElseGet(() -> userRepository.save(
+                        User.createOauth(email, resolveName(name, email), Role.USER, now)));
+
+        oauthAccountRepository.save(OauthAccount.of(user, provider, providerId, now));
+        return user;
+    }
+
+    /** 제공자가 이름을 안 주면 이메일 앞부분을 이름으로 쓴다. */
+    private String resolveName(String providerName, String email) {
+        if (providerName != null && !providerName.isBlank()) {
+            return providerName;
+        }
+        int at = email.indexOf('@');
+        return at > 0 ? email.substring(0, at) : email;
     }
 }

@@ -1,5 +1,8 @@
 package com.team1.identity.auth.controller;
 
+import com.team1.identity.auth.dto.GoogleLoginRequest;
+import com.team1.identity.auth.dto.KakaoLoginRequest;
+import com.team1.identity.auth.dto.NaverLoginRequest;
 import com.team1.identity.auth.dto.LoginRequest;
 import com.team1.identity.auth.dto.LoginResponse;
 import com.team1.identity.auth.dto.SignUpRequest;
@@ -65,5 +68,66 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.ok(authService.login(request));
+    }
+
+    @Operation(
+            summary = "구글 로그인",
+            description = """
+                    프론트에서 구글로 받은 액세스 토큰을 넘기면, 서버가 그 토큰으로 구글 사용자
+                    정보를 조회해 신원을 확인한다. 처음 로그인하는 구글 계정은 같은 이메일 회원에
+                    연결하거나 새 회원(USER)으로 만든 뒤, 일반 로그인과 동일한 Access Token을 반환한다.
+                    """)
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200", description = "로그인 성공(신규 계정은 자동 생성)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401", description = "SOCIAL_LOGIN_FAILED — 구글 토큰이 없거나 유효하지 않음"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "503", description = "DEPENDENCY_UNAVAILABLE — 구글 조회 실패(장애·네트워크)")
+    })
+    @PostMapping("/google")
+    public ApiResponse<LoginResponse> googleLogin(@Valid @RequestBody GoogleLoginRequest request) {
+        return ApiResponse.ok(authService.googleLogin(request.googleAccessToken()));
+    }
+
+    @Operation(
+            summary = "네이버 로그인",
+            description = """
+                    프론트에서 네이버로 받은 액세스 토큰을 넘기면, 서버가 그 토큰으로 네이버 사용자
+                    정보를 조회해 신원을 확인한다. 처음 로그인하는 네이버 계정은 같은 이메일 회원에
+                    연결하거나 새 회원(USER)으로 만든 뒤, 일반 로그인과 동일한 Access Token을 반환한다.
+                    """)
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200", description = "로그인 성공(신규 계정은 자동 생성)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401", description = "SOCIAL_LOGIN_FAILED — 네이버 토큰이 없거나 유효하지 않음·이메일 미제공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "503", description = "DEPENDENCY_UNAVAILABLE — 네이버 조회 실패(장애·네트워크)")
+    })
+    @PostMapping("/naver")
+    public ApiResponse<LoginResponse> naverLogin(@Valid @RequestBody NaverLoginRequest request) {
+        return ApiResponse.ok(authService.naverLogin(request.naverAccessToken()));
+    }
+
+    @Operation(
+            summary = "카카오 로그인",
+            description = """
+                    프론트에서 카카오로 받은 인가 코드를 넘기면, 서버가 REST 키로 토큰을 교환하고
+                    카카오 사용자 정보를 조회해 신원을 확인한다. 카카오 이메일이 없으면(비즈앱 아님)
+                    식별자 기반 placeholder 이메일로 처리한다(방안 B). 처음 로그인하는 계정은 같은
+                    이메일 회원에 연결하거나 새 회원(USER)으로 만든 뒤 일반 로그인과 동일한 Access Token을 반환한다.
+                    """)
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200", description = "로그인 성공(신규 계정은 자동 생성)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401", description = "SOCIAL_LOGIN_FAILED — 카카오 인가 코드가 없거나 유효하지 않음"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "503", description = "DEPENDENCY_UNAVAILABLE — 카카오 조회 실패(장애·네트워크)")
+    })
+    @PostMapping("/kakao")
+    public ApiResponse<LoginResponse> kakaoLogin(@Valid @RequestBody KakaoLoginRequest request) {
+        return ApiResponse.ok(authService.kakaoLogin(request.code(), request.redirectUri()));
     }
 }

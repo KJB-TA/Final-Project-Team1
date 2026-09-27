@@ -38,3 +38,9 @@ jwt:
   # 개발·CI 기본값. 실제 값은 JWT_SECRET 환경변수가 덮어쓴다
   secret: ${JWT_SECRET:dev-only-not-a-real-secret-0123456789abcdef}
   access-token-expiration: 3600000
+
+# 카카오 로그인 인가 코드 교환에 쓰는 REST API 키. 비어 있으면 카카오 로그인만 동작하지 않는다.
+# client-secret: 카카오 콘솔에서 REST 키에 클라이언트 시크릿이 켜져 있으면 그 값도 넣어야 토큰이 발급된다.
+kakao:
+  rest-api-key: ${KAKAO_REST_API_KEY:}
+  client-secret: ${KAKAO_CLIENT_SECRET:}

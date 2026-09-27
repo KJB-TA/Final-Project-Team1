@@ -32,7 +32,8 @@ public class User {
     @Column(nullable = false, unique = true, length = 255)
     private String email;
 
-    @Column(name = "password_hash", nullable = false, length = 60)
+    // 소셜 로그인 사용자는 비밀번호가 없어 null 이다(V6). 이메일/비밀번호 가입자만 값을 가진다.
+    @Column(name = "password_hash", length = 60)
     private String passwordHash;
 
     @Column(nullable = false, length = 100)
@@ -58,6 +59,14 @@ public class User {
 
     public static User create(String email, String passwordHash, String name, Role role, LocalDateTime now) {
         return new User(email, passwordHash, name, role, now);
+    }
+
+    /*
+     * 소셜 로그인 최초 진입 시 만드는 사용자다. 비밀번호가 없어 password_hash 는 null 이며,
+     * 이 계정으로는 이메일/비밀번호 로그인을 할 수 없다(BCrypt 비교가 항상 실패).
+     */
+    public static User createOauth(String email, String name, Role role, LocalDateTime now) {
+        return new User(email, null, name, role, now);
     }
 
     /*
