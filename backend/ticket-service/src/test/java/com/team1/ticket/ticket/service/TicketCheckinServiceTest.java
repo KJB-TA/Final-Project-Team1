@@ -110,6 +110,32 @@ class TicketCheckinServiceTest {
     }
 
     @Test
+    @DisplayName("verify: 회원이 없는 코드·예약번호를 넣어도 404 가 아니라 403 - 티켓을 찾기 전에 역할부터 본다")
+    void verifyChecksRoleBeforeLookup() {
+        when(tickets.findByCheckinToken(TOKEN)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.verify(TOKEN, null, MEMBER))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.FORBIDDEN));
+        assertThatThrownBy(() -> service.verify(null, RESERVATION_NO, MEMBER))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.FORBIDDEN));
+
+        verify(tickets, never()).findByCheckinToken(any());
+        verify(tickets, never()).findByReservationNo(any());
+    }
+
+    @Test
+    @DisplayName("checkin: 회원이 없는 티켓 id 로 요청해도 404 가 아니라 403")
+    void checkinChecksRoleBeforeLookup() {
+        assertThatThrownBy(() -> service.checkin(999L, null, MEMBER))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.FORBIDDEN));
+
+        verify(tickets, never()).findById(anyLong());
+    }
+
+    @Test
     @DisplayName("verify: 다른 주최자면 403")
     void verifyRejectsNonOwner() {
         when(tickets.findByCheckinToken(TOKEN)).thenReturn(Optional.of(issuedTicket()));

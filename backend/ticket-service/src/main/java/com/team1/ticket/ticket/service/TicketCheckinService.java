@@ -63,6 +63,7 @@ public class TicketCheckinService {
     // 체크인 토큰 또는 예약번호로 티켓을 조회한다. 상태를 바꾸지 않는다(주최자가 확정 전에 확인).
     @Transactional(readOnly = true)
     public CheckinTicketView verify(String code, String reservationNo, AuthenticatedUser organizer) {
+        requireOrganizer(organizer);
         Ticket ticket = findTicket(code, reservationNo);
         ExpoSummary expo = verifyOwnership(ticket, organizer);
         // 회차 번호는 보여주기용이라 못 받아와도 조회를 막지 않는다 - 시간창과 같은 fail-open 이다.
@@ -75,6 +76,7 @@ public class TicketCheckinService {
     // 체크인 확정. ISSUED → USED (1회용). 이미 사용/취소면 거부.
     @Transactional
     public CheckinResult checkin(Long ticketId, CheckinMethod method, AuthenticatedUser organizer) {
+        requireOrganizer(organizer);
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "ticket not found: " + ticketId));
         verifyOwnership(ticket, organizer);
@@ -89,6 +91,7 @@ public class TicketCheckinService {
     // 체크인 되돌리기. USED → ISSUED. 시간창은 보지 않는다 - 창이 닫힌 뒤에도 오처리는 복구돼야 한다.
     @Transactional
     public CheckinResult cancelCheckin(Long ticketId, AuthenticatedUser organizer) {
+        requireOrganizer(organizer);
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "ticket not found: " + ticketId));
         verifyOwnership(ticket, organizer);
@@ -151,13 +154,18 @@ public class TicketCheckinService {
         }
     }
 
+    // 역할은 티켓을 찾기 전에 본다. 뒤에서 보면 회원이 404/403 차이로 QR·예약번호 존재 여부를 알아낸다.
+    private void requireOrganizer(AuthenticatedUser organizer) {
+        if (organizer == null || !ROLE_ORGANIZER.equals(organizer.role())) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "organizer role required");
+        }
+    }
+
     // 주최자만, 그리고 그 티켓 박람회의 소유자만 체크인할 수 있다.
     // 소유권은 박람회-Service 만 알고 있어 getExpoInternal 로 확인한다(#7). 실패는 fail-closed.
     /** 조회한 박람회를 그대로 돌려준다 - 체크인 화면이 제목을 쓰려고 다시 묻지 않게 한다. */
     private ExpoSummary verifyOwnership(Ticket ticket, AuthenticatedUser organizer) {
-        if (organizer == null || !ROLE_ORGANIZER.equals(organizer.role())) {
-            throw new ApiException(ErrorCode.FORBIDDEN, "organizer role required");
-        }
+        requireOrganizer(organizer);
         ExpoSummary expo = expoClient.getExpo(ticket.getExpoId());
         if (!expo.channelOwnerId().equals(organizer.userId())) {
             throw new ApiException(ErrorCode.FORBIDDEN, "not the owner of this expo");
