@@ -2,9 +2,13 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { authApi, decodeJwt } from '../api/auth'
 import { recommendationApi } from '../api/recommendation'
+import { userApi } from '../api/user'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { usePageTitle } from '../hooks/usePageTitle'
+import { googleLoginEnabled, requestGoogleAccessToken } from '../lib/googleAuth'
+import { naverLoginEnabled, requestNaverAuthCode } from '../lib/naverAuth'
+import { kakaoLoginEnabled, requestKakaoAuthCode } from '../lib/kakaoAuth'
 
 const CATS = ['IT·전자', '식품·음료', '패션·뷰티', '교육·취업', '문화·예술', '기타']
 
@@ -59,6 +63,53 @@ export default function AuthPage() {
       setLoading(false)
     }
   }
+
+  // 소셜 로그인 공통: 제공자에서 자격(토큰 또는 인가 코드)을 받아 백엔드로 로그인하고, 프로필을 채워 세션을 연다.
+  async function runSocialLogin<T>(
+    getCredential: () => Promise<T>,
+    callLogin: (credential: T) => Promise<{ data: { accessToken: string } }>,
+  ) {
+    setError('')
+    setLoading(true)
+    try {
+      const credential = await getCredential()
+      const res = await callLogin(credential)
+      const token = res.data.accessToken
+      const claims = decodeJwt(token)
+
+      // 프로필(이름·아바타)을 읽으려면 토큰이 먼저 저장돼 있어야 한다.
+      localStorage.setItem('token', token)
+      let name = ''
+      let profileImageUrl: string | null = null
+      try {
+        const me = await userApi.getMe()
+        name = me.data.name
+        profileImageUrl = me.data.profileImageUrl
+      } catch {
+        // 프로필 조회가 실패해도 로그인 자체는 성립한다.
+      }
+
+      login({ id: Number(claims.sub), name, role: claims.role, token, profileImageUrl })
+      toast('로그인되었습니다', 'success')
+      navigate('/')
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string }
+      if (e.status === 401) setError('소셜 로그인에 실패했습니다. 다시 시도해주세요.')
+      else if (e.status === 503) setError('소셜 인증 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.')
+      else setError(e.message || '소셜 로그인에 실패했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleGoogleLogin = () =>
+    runSocialLogin(requestGoogleAccessToken, t => authApi.google({ googleAccessToken: t }))
+
+  const handleNaverLogin = () =>
+    runSocialLogin(requestNaverAuthCode, ({ code, state }) => authApi.naver({ code, state }))
+
+  const handleKakaoLogin = () =>
+    runSocialLogin(requestKakaoAuthCode, ({ code, redirectUri }) => authApi.kakao({ code, redirectUri }))
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
@@ -233,6 +284,16 @@ export default function AuthPage() {
 
             <div className="auth-divider"><span>또는</span></div>
 
+            {googleLoginEnabled && (
+              <GoogleButton onClick={handleGoogleLogin} disabled={loading} />
+            )}
+            {naverLoginEnabled && (
+              <NaverButton onClick={handleNaverLogin} disabled={loading} />
+            )}
+            {kakaoLoginEnabled && (
+              <KakaoButton onClick={handleKakaoLogin} disabled={loading} />
+            )}
+
             <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--sub)' }}>
               계정이 없으신가요?{' '}
               <span
@@ -298,6 +359,16 @@ export default function AuthPage() {
 
             <div className="auth-divider"><span>또는</span></div>
 
+            {googleLoginEnabled && (
+              <GoogleButton onClick={handleGoogleLogin} disabled={loading} />
+            )}
+            {naverLoginEnabled && (
+              <NaverButton onClick={handleNaverLogin} disabled={loading} />
+            )}
+            {kakaoLoginEnabled && (
+              <KakaoButton onClick={handleKakaoLogin} disabled={loading} />
+            )}
+
             <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--sub)' }}>
               이미 계정이 있으신가요?{' '}
               <span
@@ -315,5 +386,44 @@ export default function AuthPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+/** 구글 브랜드 가이드에 맞춘 흰 버튼 + 4색 G 로고. */
+function GoogleButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <button type="button" className="btn-google" onClick={onClick} disabled={disabled}>
+      <svg className="btn-google-icon" viewBox="0 0 18 18" aria-hidden="true">
+        <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z" />
+        <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z" />
+        <path fill="#FBBC05" d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z" />
+        <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.42 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z" />
+      </svg>
+      <span>구글로 계속하기</span>
+    </button>
+  )
+}
+
+/** 네이버 브랜드 색(초록) 버튼 + N 로고. */
+function NaverButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <button type="button" className="btn-naver" onClick={onClick} disabled={disabled}>
+      <svg className="btn-naver-icon" viewBox="0 0 20 20" aria-hidden="true">
+        <path fill="#fff" d="M11.6 10.7 8.2 5.8H5.5v8.4h2.9V9.3l3.4 4.9h2.7V5.8h-2.9v4.9z" />
+      </svg>
+      <span>네이버로 계속하기</span>
+    </button>
+  )
+}
+
+/** 카카오 브랜드 색(노랑) 버튼 + 말풍선 로고. */
+function KakaoButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <button type="button" className="btn-kakao" onClick={onClick} disabled={disabled}>
+      <svg className="btn-kakao-icon" viewBox="0 0 20 20" aria-hidden="true">
+        <path fill="#000" fillOpacity="0.9" d="M10 3.5c-3.9 0-7 2.4-7 5.4 0 1.9 1.3 3.6 3.2 4.6l-.8 2.9c-.1.3.2.5.4.3l3.5-2.3c.2 0 .5.1.7.1 3.9 0 7-2.4 7-5.4S13.9 3.5 10 3.5z" />
+      </svg>
+      <span>카카오로 계속하기</span>
+    </button>
   )
 }

@@ -16,6 +16,8 @@ import CheckinPage from './pages/CheckinPage'
 import MyPage from './pages/MyPage'
 import RecommendationsPage from './pages/RecommendationsPage'
 import CalendarPage from './pages/CalendarPage'
+import NaverCallback from './pages/NaverCallback'
+import KakaoCallback from './pages/KakaoCallback'
 
 export default function App() {
   return (
@@ -27,6 +29,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/auth" element={<AuthPage />} />
+            <Route path="/auth/naver/callback" element={<NaverCallback />} />
+            <Route path="/auth/kakao/callback" element={<KakaoCallback />} />
             <Route path="/expos" element={<HomePage />} />
             <Route path="/expos/:expoId" element={<ExpoDetailPage />} />
             <Route path="/calendar" element={<CalendarPage />} />

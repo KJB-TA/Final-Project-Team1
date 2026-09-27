@@ -74,6 +74,9 @@ jobs:
             VITE_PORTONE_CHANNEL_KEY=${{ vars.VITE_PORTONE_CHANNEL_KEY }}
             VITE_CLOUDINARY_CLOUD_NAME=${{ vars.VITE_CLOUDINARY_CLOUD_NAME }}
             VITE_CLOUDINARY_UPLOAD_PRESET=${{ vars.VITE_CLOUDINARY_UPLOAD_PRESET }}
+            VITE_GOOGLE_CLIENT_ID=${{ vars.VITE_GOOGLE_CLIENT_ID }}
+            VITE_NAVER_CLIENT_ID=${{ vars.VITE_NAVER_CLIENT_ID }}
+            VITE_KAKAO_REST_KEY=${{ vars.VITE_KAKAO_REST_KEY }}
           tags: |
             ${{ env.REGISTRY }}/fpt1-web:latest
             ${{ env.REGISTRY }}/fpt1-web:${{ steps.meta.outputs.sha }}

@@ -50,6 +50,13 @@ services:
       <<: *backend-env
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@team1.local}
       SUPER_ADMIN_PASSWORD_HASH: ${SUPER_ADMIN_PASSWORD_HASH}
+      # 카카오 로그인 인가 코드 교환용 REST API 키. 비어 있으면 카카오 로그인만 동작 안 함
+      KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
+      # REST 키에 클라이언트 시크릿이 켜져 있으면 그 값도 필요(카카오 신규 앱 기본 활성화)
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
+      # 네이버 로그인 인가 코드 교환용 Client ID/Secret. 비어 있으면 네이버 로그인만 동작 안 함
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:-}
 
   expo-service:
     <<: *backend
@@ -161,6 +168,12 @@ services:
       args:
         VITE_PORTONE_STORE_ID: ${PORTONE_STORE_ID}
         VITE_PORTONE_CHANNEL_KEY: ${PORTONE_CHANNEL_KEY}
+        # 구글 소셜 로그인 클라이언트 ID(공개 값). 비어 있으면 구글 로그인 버튼이 숨는다.
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+        # 네이버 소셜 로그인 클라이언트 ID(공개 값). 비어 있으면 네이버 로그인 버튼이 숨는다.
+        VITE_NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
+        # 카카오 소셜 로그인 REST API 키(공개 값, 인가 URL client_id). 비어 있으면 카카오 로그인 버튼이 숨는다.
+        VITE_KAKAO_REST_KEY: ${KAKAO_REST_KEY:-}
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-80}:80"
