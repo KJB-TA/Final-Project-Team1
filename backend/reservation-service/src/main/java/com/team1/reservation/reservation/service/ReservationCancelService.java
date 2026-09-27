@@ -1,5 +1,7 @@
 package com.team1.reservation.reservation.service;
 
+import com.team1.payment.PaymentApprovalOutcome;
+import com.team1.payment.PaymentApprovalResult;
 import com.team1.payment.PaymentService;
 import com.team1.payment.PaymentStatus;
 import com.team1.payment.PaymentTransaction;
@@ -116,6 +118,14 @@ public class ReservationCancelService {
             requireNotCheckedIn(reservationId);
         }
 
+        // 결제는 끝났는데 웹훅·확정 호출이 아직 안 온 PENDING 일 수 있다. 로컬 결제가 PENDING 인 채로
+        // 취소하면 환불 없이 끝나고, 뒤늦은 웹훅은 이미 취소된 예약이라 반영되지 않는다.
+        // 만료 스케줄러처럼 PG 를 먼저 조회해 결제 상태만 맞춰 둔다(예약 확정은 하지 않는다).
+        boolean wasPending = reservation.getStatus() == ReservationStatus.PENDING;
+        if (wasPending) {
+            syncPendingPayment(reservationId);
+        }
+
         // 순서가 중요하다. 전이가 먼저다 - 0 행이면 만료 배치나 웹훅, 또는 동시 요청이
         // 먼저 끝낸 것이고, 그때 정원을 반환하면 두 번 돌려주게 된다.
         if (reservations.cancelIfActive(reservationId, now) == 0) {
@@ -123,7 +133,7 @@ public class ReservationCancelService {
         }
         rounds.release(roundId, headcount);
 
-        RefundState refundState = refundIfEligible(reservationId, amount, round, now);
+        RefundState refundState = refundIfEligible(reservationId, amount, round, now, wasPending);
 
         // 환불 여부와 무관하게 무효화한다. 환불을 못 받아도 입장은 막아야 한다.
         ticketNotifier.notifyRevoked(reservation);
@@ -177,7 +187,27 @@ public class ReservationCancelService {
     }
 
     /** 환불을 시도하고 그 결과를 표시값으로 돌려준다. */
-    private RefundState refundIfEligible(Long reservationId, int amount, Round round, Instant now) {
+    /**
+     * PG 가 PAID 라고 하면 로컬 결제를 PAID 로 맞춘다. 모름(결제창만 열고 닫은 경우도 여기다)이면
+     * 아무것도 바꾸지 않고 지금처럼 환불 없이 취소한다 - 막으면 결제창을 닫은 취소가 전부 실패한다.
+     */
+    private void syncPendingPayment(Long reservationId) {
+        boolean pending = payments.findByRefId(reservationId)
+                .map(p -> p.getStatus() == PaymentStatus.PENDING)
+                .orElse(false);
+        if (!pending) {
+            return;
+        }
+        PaymentApprovalResult result = paymentService.confirm(reservationId);
+        if (result.outcome() == PaymentApprovalOutcome.AMOUNT_MISMATCH) {
+            log.warn("pending cancel with amount mismatch reservationId={} traceId={}",
+                    reservationId, TraceId.get());
+        }
+    }
+
+    /** @param neverConfirmed 확정된 적 없는 예약이면 환불 기한과 무관하게 돌려준다 - 받은 것이 없다. */
+    private RefundState refundIfEligible(Long reservationId, int amount, Round round, Instant now,
+                                         boolean neverConfirmed) {
         if (amount == 0) {
             return RefundState.NOT_APPLICABLE;
         }
@@ -193,7 +223,7 @@ public class ReservationCancelService {
             return RefundState.of(ReservationStatus.CANCELLED, payment, refundMaxAttempts);
         }
 
-        if (now.isAfter(round.getStartsAt().minus(refundWindow))) {
+        if (!neverConfirmed && now.isAfter(round.getStartsAt().minus(refundWindow))) {
             // 예약 CANCELLED · 결제 PAID 조합은 정상이다. 기한이 지나 환불하지 않은 것이다.
             log.info("cancelled without refund reservationId={} startsAt={} now={} traceId={}",
                     reservationId, round.getStartsAt(), now, TraceId.get());
