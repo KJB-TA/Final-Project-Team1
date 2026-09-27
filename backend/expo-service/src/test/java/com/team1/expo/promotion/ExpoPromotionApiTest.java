@@ -1,6 +1,7 @@
 package com.team1.expo.promotion;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.team1.expo.domain.expo.ExpoRepository;
 import com.team1.expo.domain.promotion.ExpoPromotion;
 import com.team1.expo.domain.promotion.ExpoPromotionRepository;
 import com.team1.expo.domain.promotion.ExpoPromotionStatus;
@@ -11,7 +12,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import java.time.Clock;
@@ -25,6 +30,8 @@ class ExpoPromotionApiTest extends ApiTestSupport {
     private ExpoPromotionRepository promotionRepository;
     @Autowired
     private ExpoPaymentTransactionRepository paymentTransactionRepository;
+    @Autowired
+    private ExpoRepository expoRepository;
 
     private long ownerId;
     private String ownerToken;
@@ -48,6 +55,13 @@ class ExpoPromotionApiTest extends ApiTestSupport {
                 {"title":"배너 테스트 박람회","category":"IT·전자","description":"설명","venue":"코엑스","region":"서울"}
                 """, ownerToken);
         expoId = expoRes.getBody().path("data").path("id").asLong();
+        publish(expoId);
+    }
+
+    private void publish(long id) {
+        var expo = expoRepository.findById(id).orElseThrow();
+        expo.publish();
+        expoRepository.save(expo);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -68,6 +82,22 @@ class ExpoPromotionApiTest extends ApiTestSupport {
         assertThat(response.getBody().path("data").path("paymentId").asText()).startsWith("BE24-01-");
         assertThat(response.getBody().path("data").path("amount").asInt()).isEqualTo(9_900);
         assertThat(response.getBody().path("data").path("status").asText()).isEqualTo("PENDING");
+    }
+
+    @Test
+    @DisplayName("공개 중이 아닌 박람회는 배너를 신청할 수 없다 (409)")
+    void 비공개_박람회_배너_신청_거절() {
+        var expo = expoRepository.findById(expoId).orElseThrow();
+        expo.unpublish();
+        expoRepository.save(expo);
+
+        ResponseEntity<JsonNode> response = post("/api/v1/expo-promotions",
+                """
+                {"expoId":%d}
+                """.formatted(expoId), ownerToken);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(errorCode(response)).isEqualTo("PROMOTION_EXPO_NOT_PUBLISHED");
     }
 
     @Test
@@ -183,61 +213,100 @@ class ExpoPromotionApiTest extends ApiTestSupport {
     }
 
     // ──────────────────────────────────────────────────────────
-    // 웹훅
+    // 결제 확인 · 웹훅
     // ──────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("웹훅 paid 수신 시 ExpoPromotion이 ACTIVE로 전이된다")
-    void 웹훅_paid_ACTIVE_전이() {
-        ResponseEntity<JsonNode> applyRes = post("/api/v1/expo-promotions",
-                """
-                {"expoId":%d}
-                """.formatted(expoId), ownerToken);
-        long promotionId = applyRes.getBody().path("data").path("promotionId").asLong();
-        String paymentId = applyRes.getBody().path("data").path("paymentId").asText();
+    @DisplayName("결제 확인을 요청하면 서버가 PG 에 직접 확인하고 ACTIVE 로 전이한다")
+    void 결제_확인_ACTIVE_전이() {
+        long promotionId = apply();
+
+        ResponseEntity<JsonNode> response = post(
+                "/api/v1/expo-promotions/" + promotionId + "/payment", "", ownerToken);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().path("data").path("status").asText()).isEqualTo("ACTIVE");
+        assertThat(promotionRepository.findById(promotionId).orElseThrow().getStatus())
+                .isEqualTo(ExpoPromotionStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("결제 확인을 두 번 요청해도 200 이고 ACTIVE 그대로다 (멱등)")
+    void 결제_확인_멱등() {
+        long promotionId = apply();
+        post("/api/v1/expo-promotions/" + promotionId + "/payment", "", ownerToken);
+
+        ResponseEntity<JsonNode> second = post(
+                "/api/v1/expo-promotions/" + promotionId + "/payment", "", ownerToken);
+
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(second.getBody().path("data").path("status").asText()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    @DisplayName("다른 주최자는 결제 확인을 요청할 수 없다 (403)")
+    void 타인_결제_확인_거절() {
+        long promotionId = apply();
+        String otherToken = jwtFor(uniqueUserId(), "ORGANIZER");
+
+        ResponseEntity<JsonNode> response = post(
+                "/api/v1/expo-promotions/" + promotionId + "/payment", "", otherToken);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(promotionRepository.findById(promotionId).orElseThrow().getStatus())
+                .isEqualTo(ExpoPromotionStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("서명이 틀린 웹훅은 401 이고 배너 상태를 바꾸지 않는다")
+    void 서명_불일치_웹훅_거절() {
+        long promotionId = apply();
+        String paymentId = paymentTransactionRepository.findByRefId(promotionId).orElseThrow().getPaymentId();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("webhook-id", "wh-forged-" + paymentId);
+        headers.set("webhook-signature", "v1,Zm9yZ2VkLXNpZ25hdHVyZQ==");
+        headers.set("webhook-timestamp", String.valueOf(Instant.now().getEpochSecond()));
+        String body = """
+                {"type":"Transaction.Paid","timestamp":"2026-09-27T00:00:00Z","data":{"paymentId":"%s","storeId":"store","transactionId":"tx"}}
+                """.formatted(paymentId);
+
+        ResponseEntity<JsonNode> response = restTemplate.exchange("/api/v1/expo-promotions/webhooks/portone",
+                HttpMethod.POST, new HttpEntity<>(body, headers), JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(promotionRepository.findById(promotionId).orElseThrow().getStatus())
+                .isEqualTo(ExpoPromotionStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("서명 헤더 없이 보낸 웹훅(예전 화면의 직접 호출)은 400 이고 배너 상태를 바꾸지 않는다")
+    void 서명_없는_웹훅_거절() {
+        long promotionId = apply();
+        String paymentId = paymentTransactionRepository.findByRefId(promotionId).orElseThrow().getPaymentId();
 
         ResponseEntity<JsonNode> response = post("/api/v1/expo-promotions/webhooks/portone",
                 """
                 {"webhook_id":"wh-%s","payment_id":"%s","status":"paid"}
                 """.formatted(paymentId, paymentId), null);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(promotionRepository.findById(promotionId).orElseThrow().getStatus())
-                .isEqualTo(ExpoPromotionStatus.ACTIVE);
-    }
-
-    @Test
-    @DisplayName("동일 webhook_id를 두 번 수신하면 200 멱등 응답하고 상태가 중복 변경되지 않는다")
-    void 웹훅_중복_멱등() {
-        ResponseEntity<JsonNode> applyRes = post("/api/v1/expo-promotions",
-                """
-                {"expoId":%d}
-                """.formatted(expoId), ownerToken);
-        String paymentId = applyRes.getBody().path("data").path("paymentId").asText();
-        String webhookBody = """
-                {"webhook_id":"wh-dup-%s","payment_id":"%s","status":"paid"}
-                """.formatted(paymentId, paymentId);
-
-        post("/api/v1/expo-promotions/webhooks/portone", webhookBody, null);
-        ResponseEntity<JsonNode> second = post("/api/v1/expo-promotions/webhooks/portone", webhookBody, null);
-
-        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
-    }
-
-    @Test
-    @DisplayName("알 수 없는 paymentId 웹훅은 200으로 무시된다")
-    void 웹훅_알수없는_paymentId_무시() {
-        ResponseEntity<JsonNode> response = post("/api/v1/expo-promotions/webhooks/portone",
-                """
-                {"webhook_id":"wh-unknown-123","payment_id":"BE24-01-NOTEXIST","status":"paid"}
-                """, null);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                .isEqualTo(ExpoPromotionStatus.PENDING);
     }
 
     // ──────────────────────────────────────────────────────────
     // 헬퍼
     // ──────────────────────────────────────────────────────────
+
+    private long apply() {
+        ResponseEntity<JsonNode> applyRes = post("/api/v1/expo-promotions",
+                """
+                {"expoId":%d}
+                """.formatted(expoId), ownerToken);
+        return applyRes.getBody().path("data").path("promotionId").asLong();
+    }
 
     /** DB에 ACTIVE 상태의 ExpoPromotion + PaymentTransaction을 직접 생성한다. */
     private long activePromotion() {

@@ -89,15 +89,12 @@ export default function HostChannelPage() {
         return
       }
 
-      // 로컬 개발: MockPgClient 사용 환경에서 수동 webhook으로 ACTIVE 전환
-      await fetch('/api/v1/expo-promotions/webhooks/portone', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'webhook-id': `wh-${data.paymentId}`,
-        },
-        body: JSON.stringify({ payment_id: data.paymentId, status: 'PAID' }),
-      })
+      // 서버가 PG 에 결제 사실과 금액을 직접 확인한 뒤에만 배너가 켜진다
+      const confirmed = await expoApi.confirmPromotionPayment(data.promotionId)
+      if (confirmed.data.status !== 'ACTIVE') {
+        toast('결제가 완료되지 않았습니다', 'error')
+        return
+      }
 
       toast('VIP 배너 신청이 완료되었습니다!', 'success')
       loadActivePromos()
@@ -105,6 +102,8 @@ export default function HostChannelPage() {
       const code = (err as { body?: { data?: { code?: string } } })?.body?.data?.code
       if (code === 'PROMOTION_SLOT_FULL') toast('VIP 배너 슬롯이 모두 사용 중입니다. 잠시 후 다시 시도해주세요.', 'error')
       else if (code === 'PROMOTION_ALREADY_EXISTS') toast('이미 진행 중인 배너 신청이 있습니다', 'error')
+      else if (code === 'PROMOTION_EXPO_NOT_PUBLISHED') toast('공개 중인 박람회만 VIP 배너를 신청할 수 있습니다', 'error')
+      else if (code === 'DEPENDENCY_UNAVAILABLE') toast('결제 확인이 지연되고 있습니다. 잠시 후 목록을 새로고침해 주세요', 'error')
       else toast('배너 신청에 실패했습니다', 'error')
     } finally {
       setPromoLoading(p => ({ ...p, [expoId]: false }))
@@ -265,7 +264,7 @@ function ExpoRow({
           >
             {promoLoading ? '처리중...' : 'VIP 환불'}
           </button>
-        ) : (
+        ) : (expo.status ?? 'PUBLISHED') === 'PUBLISHED' && (
           <button
             className="btn btn-sm"
             style={{ background: '#7C3AED', color: '#fff', border: 'none' }}

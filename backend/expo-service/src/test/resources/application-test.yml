@@ -10,3 +10,7 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+
+# 테스트끼리 DB 를 공유해 ACTIVE 배너가 쌓인다. 슬롯 상한에 걸려 순서에 따라 실패하지 않게 넉넉히 둔다.
+banner:
+  max-slots: 1000

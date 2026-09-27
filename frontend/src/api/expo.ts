@@ -182,6 +182,10 @@ export const expoApi = {
   applyPromotion: (expoId: number) =>
     api.post<ApiResponse<ApplyPromotionResponse>>('/expo-promotions', { expoId }),
 
+  // POST /api/v1/expo-promotions/{promotionId}/payment — 결제창이 닫힌 뒤 서버가 PG 에 직접 확인한다
+  confirmPromotionPayment: (promotionId: number) =>
+    api.post<ApiResponse<{ promotionId: number; status: string }>>(`/expo-promotions/${promotionId}/payment`, {}),
+
   // POST /api/v1/expo-promotions/{promotionId}/refund
   refundPromotion: (promotionId: number) =>
     api.post<ApiResponse<void>>(`/expo-promotions/${promotionId}/refund`, {}),
