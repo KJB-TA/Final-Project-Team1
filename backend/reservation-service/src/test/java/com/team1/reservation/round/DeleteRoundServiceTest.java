@@ -40,8 +40,8 @@ import static org.mockito.Mockito.when;
 /**
  * S9-3 회차 소프트 삭제. 조건부 UPDATE 와 자동 비공개 순서를 실 DB 로 본다.
  *
- * <p>핵심은 마지막 두 개다 - 마지막 회차를 지우면 박람회가 먼저 비공개로 바뀌고,
- * 그 전환이 실패하면 삭제 자체가 일어나지 않는다.
+ * <p>핵심은 자동 비공개 묶음이다 - 로컬 삭제가 먼저라 예약이 있으면 박람회를 건드리지 않고,
+ * 비공개 전환이 실패하면 삭제가 롤백된다.
  */
 class DeleteRoundServiceTest extends IntegrationTestSupport {
 
@@ -176,7 +176,7 @@ class DeleteRoundServiceTest extends IntegrationTestSupport {
     // ---- 마지막 회차와 자동 비공개 ----
 
     @Test
-    @DisplayName("마지막 회차를 지우면 박람회를 먼저 비공개로 바꾼다")
+    @DisplayName("마지막 회차를 지우면 박람회를 비공개로 바꾼다")
     void unpublishesExpoWhenDeletingLastRound() {
         roundService.delete(EXPO_ID, roundId, OWNER);
 
@@ -206,7 +206,7 @@ class DeleteRoundServiceTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("비공개 전환이 실패하면 삭제하지 않는다 - 회차 0개인 공개 박람회를 만들지 않는다")
+    @DisplayName("비공개 전환이 실패하면 삭제가 롤백된다 - 회차 0개인 공개 박람회를 만들지 않는다")
     void doesNotDeleteWhenUnpublishFails() {
         doThrow(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE, "expo-service unavailable"))
                 .when(expoClient).unpublish(EXPO_ID);
@@ -215,6 +215,19 @@ class DeleteRoundServiceTest extends IntegrationTestSupport {
                 .isInstanceOfSatisfying(ApiException.class,
                         e -> assertThat(e.code()).isEqualTo(ErrorCode.DEPENDENCY_UNAVAILABLE));
 
+        assertThat(deleted(roundId)).isFalse();
+    }
+
+    @Test
+    @DisplayName("예약이 있는 마지막 회차는 409 이고 박람회도 공개 상태 그대로다 - 비공개 호출 자체를 하지 않는다")
+    void keepsExpoPublishedWhenLastRoundHasReservation() {
+        confirm(1L, 2);
+
+        assertThatThrownBy(() -> roundService.delete(EXPO_ID, roundId, OWNER))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.ROUND_HAS_RESERVATIONS));
+
+        verify(expoClient, never()).unpublish(anyLong());
         assertThat(deleted(roundId)).isFalse();
     }
 
