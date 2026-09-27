@@ -3,8 +3,10 @@ package com.team1.reservation.reservation.repository;
 import com.team1.reservation.reservation.entity.Reservation;
 import com.team1.reservation.reservation.entity.ReservationStatus;
 import com.team1.reservation.reservation.dto.RoundStatusHeadcount;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,8 +14,17 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
+
+    /**
+     * 티켓 발급 직전 상태 확인용. 발급하는 동안 취소(cancelIfActive)가 끼어들지 못하게 행을 잠근다 -
+     * 끼어들면 무효화가 먼저 끝나고(티켓 없음) 발급이 뒤에 성공해 취소된 예약에 티켓이 남는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Reservation r where r.id = :id")
+    Optional<Reservation> findByIdForUpdate(@Param("id") Long id);
 
     /**
      * 같은 회차에 아직 살아 있는 예약이 있는지 본다.

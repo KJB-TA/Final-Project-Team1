@@ -2,8 +2,11 @@ package com.team1.reservation.reservation.support;
 
 import com.team1.reservation.client.TicketClient;
 import com.team1.reservation.config.AfterCommitExecutor;
+import com.team1.reservation.reservation.entity.Reservation;
+import com.team1.reservation.reservation.entity.ReservationStatus;
 import com.team1.reservation.reservation.entity.RetryPolicy;
 import com.team1.reservation.reservation.entity.TicketDispatch;
+import com.team1.reservation.reservation.repository.ReservationRepository;
 import com.team1.reservation.reservation.repository.TicketDispatchRepository;
 import com.team1.reservation.reservation.service.TicketDispatcher;
 import com.team1.reservation.reservation.service.TicketIssueNotifier;
@@ -48,7 +51,21 @@ public final class TicketDispatchStub {
 
     public static TicketDispatcher dispatcher(TicketDispatchRepository queue,
                                               TicketClient ticketClient, Clock clock) {
-        return new TicketDispatcher(queue, ticketClient, clock, ISSUE_POLICY, REVOKE_POLICY);
+        return dispatcher(queue, confirmedReservations(), ticketClient, clock);
+    }
+
+    public static TicketDispatcher dispatcher(TicketDispatchRepository queue, ReservationRepository reservations,
+                                              TicketClient ticketClient, Clock clock) {
+        return new TicketDispatcher(queue, reservations, ticketClient, clock, ISSUE_POLICY, REVOKE_POLICY);
+    }
+
+    /** 발급 직전 상태 확인이 항상 CONFIRMED 를 보게 한다. 통지 자체를 보는 Test 들의 기본값이다. */
+    public static ReservationRepository confirmedReservations() {
+        ReservationRepository reservations = mock(ReservationRepository.class);
+        Reservation confirmed = mock(Reservation.class);
+        when(confirmed.getStatus()).thenReturn(ReservationStatus.CONFIRMED);
+        when(reservations.findByIdForUpdate(any())).thenReturn(Optional.of(confirmed));
+        return reservations;
     }
 
     /** id 를 붙여 저장하고 다시 찾아 주는 최소한의 가짜 Repository. */

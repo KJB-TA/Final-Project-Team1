@@ -5,9 +5,12 @@ import com.team1.reservation.client.IssuedTicket;
 import com.team1.reservation.client.TicketClient;
 import com.team1.reservation.common.ApiException;
 import com.team1.reservation.common.ErrorCode;
+import com.team1.reservation.reservation.entity.Reservation;
+import com.team1.reservation.reservation.entity.ReservationStatus;
 import com.team1.reservation.reservation.entity.TicketDispatch;
 import com.team1.reservation.reservation.entity.TicketDispatchStatus;
 import com.team1.reservation.reservation.entity.TicketDispatchType;
+import com.team1.reservation.reservation.repository.ReservationRepository;
 import com.team1.reservation.reservation.repository.TicketDispatchRepository;
 import com.team1.reservation.reservation.service.TicketDispatchService;
 import com.team1.reservation.reservation.service.TicketDispatcher;
@@ -21,11 +24,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,6 +55,36 @@ class TicketDispatchTest {
 
     private TicketDispatch enqueued() {
         return queue.save(TicketDispatch.issue(42L, RESERVATION_NO, 1L, 7L, 100L, 3, NOW));
+    }
+
+    @Test
+    @DisplayName("발급 재시도 사이 예약이 취소됐으면 발급하지 않고 큐에서 빠진다 - 취소된 예약에 티켓이 생기면 안 된다")
+    void abandonsIssueWhenReservationNoLongerConfirmed() {
+        ReservationRepository reservations = mock(ReservationRepository.class);
+        Reservation cancelled = mock(Reservation.class);
+        when(cancelled.getStatus()).thenReturn(ReservationStatus.CANCELLED);
+        when(reservations.findByIdForUpdate(42L)).thenReturn(Optional.of(cancelled));
+        dispatcher = TicketDispatchStub.dispatcher(queue, reservations, ticketClient, Clock.fixed(NOW, ZoneOffset.UTC));
+        TicketDispatch dispatch = enqueued();
+
+        assertThat(dispatcher.dispatch(dispatch.getId())).isFalse();
+
+        verify(ticketClient, never()).issueTicket(any());
+        assertThat(dispatch.getStatus()).isEqualTo(TicketDispatchStatus.GAVE_UP);
+        assertThat(dispatch.getLastError()).contains("no longer CONFIRMED");
+    }
+
+    @Test
+    @DisplayName("무효화는 예약 상태를 보지 않고 그대로 보낸다 - 취소된 예약이 대상이다")
+    void revokeDoesNotCheckReservationStatus() {
+        ReservationRepository reservations = mock(ReservationRepository.class);
+        dispatcher = TicketDispatchStub.dispatcher(queue, reservations, ticketClient, Clock.fixed(NOW, ZoneOffset.UTC));
+        TicketDispatch dispatch = enqueuedRevoke();
+
+        assertThat(dispatcher.dispatch(dispatch.getId())).isTrue();
+
+        verify(ticketClient).revokeTicket(42L);
+        verify(reservations, never()).findByIdForUpdate(any());
     }
 
     private TicketDispatch enqueuedRevoke() {
