@@ -15,6 +15,7 @@ import com.team1.reservation.reservation.service.MyReservationService;
 import com.team1.reservation.reservation.service.ReservationCancelService;
 import com.team1.reservation.reservation.service.ReservationPaymentService;
 import com.team1.reservation.reservation.service.ReservationService;
+import com.team1.reservation.round.dto.UpdateRoundRequest;
 import com.team1.reservation.round.entity.Round;
 import com.team1.reservation.round.repository.RoundRepository;
 import com.team1.reservation.round.service.RoundService;
@@ -130,6 +131,18 @@ class SoftDeletedRoundVisibilityTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("삭제된 회차를 수정하면 404 다 - 예약이 있다는 엉뚱한 오류(ROUND_HAS_RESERVATIONS)가 나가면 안 된다")
+    void rejectsUpdateOfDeletedRound() {
+        roundService.delete(EXPO_ID, roundId, OWNER);
+        Instant startsAt = now.plus(10, ChronoUnit.DAYS);
+
+        assertThatThrownBy(() -> roundService.update(EXPO_ID, roundId, OWNER,
+                new UpdateRoundRequest(startsAt, startsAt.plus(2, ChronoUnit.HOURS), CAPACITY, FEE)))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.NOT_FOUND));
+    }
+
+    @Test
     @DisplayName("삭제된 회차만 남은 박람회는 공개할 수 없다 - #24 의 판정에 걸린다")
     void cannotPublishWhenOnlyDeletedRoundsRemain() {
         roundService.delete(EXPO_ID, roundId, OWNER);
@@ -148,6 +161,18 @@ class SoftDeletedRoundVisibilityTest extends IntegrationTestSupport {
                 CAPACITY, FEE, now.minusSeconds(10800)));
 
         assertThat(roundService.finishedExpoIds(now, 100)).contains(EXPO_ID);
+    }
+
+    @Test
+    @DisplayName("자동 마감 대상은 afterExpoId 커서 뒤의 박람회만 돌려준다 - 앞쪽 limit 개만 반복되면 안 된다")
+    void finishedExpoIdsHonorsCursor() {
+        roundService.delete(EXPO_ID, roundId, OWNER);
+        roundService.delete(EXPO_ID, keptId, OWNER);
+        rounds.save(Round.create(EXPO_ID, now.minusSeconds(7200), now.minusSeconds(3600),
+                CAPACITY, FEE, now.minusSeconds(10800)));
+
+        assertThat(roundService.finishedExpoIds(now, EXPO_ID - 1, 100)).contains(EXPO_ID);
+        assertThat(roundService.finishedExpoIds(now, EXPO_ID, 100)).doesNotContain(EXPO_ID);
     }
 
     // ---- 필터하지 않는다: 과거의 이력 ----

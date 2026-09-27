@@ -93,8 +93,11 @@ public class RoundService {
     public Round update(Long expoId, Long roundId, AuthenticatedUser user, UpdateRoundRequest request) {
         requireOwnership(expoId, user);
 
+        // 삭제된 회차는 없는 회차로 본다. 거르지 않으면 아래 조건부 UPDATE 가 0 행이 되어
+        // 실제 이유와 다른 ROUND_HAS_RESERVATIONS 가 나간다(삭제 경로와 같은 판정).
         Round round = rounds.findById(roundId)
                 .filter(r -> Objects.equals(r.getExpoId(), expoId))
+                .filter(r -> !r.isDeleted())
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "round not found: " + roundId));
 
         Instant now = clock.instant();
@@ -293,8 +296,14 @@ public class RoundService {
 
     @Transactional(readOnly = true)
     public List<Long> finishedExpoIds(Instant before, int limit) {
+        return finishedExpoIds(before, 0L, limit);
+    }
+
+    /** afterExpoId 보다 큰 id 만 id 순으로 돌려준다. 호출부는 마지막 id 를 다음 커서로 넘긴다. */
+    @Transactional(readOnly = true)
+    public List<Long> finishedExpoIds(Instant before, long afterExpoId, int limit) {
         int size = Math.min(Math.max(limit, 1), MAX_FINISHED_EXPO_LIMIT);
-        return rounds.findExpoIdsWithAllRoundsEndedBefore(before, PageRequest.of(0, size));
+        return rounds.findExpoIdsWithAllRoundsEndedBefore(before, afterExpoId, PageRequest.of(0, size));
     }
 
 

@@ -33,26 +33,36 @@ public class ExpoAutoCloseScheduler {
     @Transactional
     public void closeFinishedExpos() {
         Instant now = clock.instant();
-        List<Long> expoIds;
-
-        try {
-            expoIds = roundClient.finishedExpoIds(now, limit);
-        } catch (Exception e) {
-            log.warn("[AutoClose] finishedExpoIds 호출 실패, 이번 주기 건너뜀", e);
-            return;
-        }
-
-        if (expoIds.isEmpty()) {
-            return;
-        }
-
         LocalDateTime closedAt = LocalDateTime.ofInstant(now, clock.getZone());
-        int updated = expoRepository.closeByIds(expoIds, ExpoStatus.PUBLISHED, ExpoStatus.CLOSED, closedAt);
 
-        log.info("[AutoClose] 마감 처리 완료 대상={} 실제변경={} limit={}", expoIds.size(), updated, limit);
+        // 이미 CLOSED 인 박람회도 계속 돌아오므로, 한 번에 앞쪽 limit 개만 보면 그 뒤는 영영 마감되지 않는다.
+        // 마지막 id 를 커서로 넘기며 끝까지 훑는다.
+        long afterExpoId = 0L;
+        int scanned = 0;
+        int updated = 0;
+        while (true) {
+            List<Long> expoIds;
+            try {
+                expoIds = roundClient.finishedExpoIds(now, afterExpoId, limit);
+            } catch (Exception e) {
+                log.warn("[AutoClose] finishedExpoIds 호출 실패, 이번 주기 나머지 건너뜀 afterExpoId={}", afterExpoId, e);
+                break;
+            }
+            if (expoIds.isEmpty()) {
+                break;
+            }
 
-        if (expoIds.size() >= limit) {
-            log.info("[AutoClose] limit({})에 도달 — 다음 주기에 남은 대상 처리", limit);
+            updated += expoRepository.closeByIds(expoIds, ExpoStatus.PUBLISHED, ExpoStatus.CLOSED, closedAt);
+            scanned += expoIds.size();
+
+            if (expoIds.size() < limit) {
+                break;
+            }
+            afterExpoId = expoIds.get(expoIds.size() - 1);
+        }
+
+        if (scanned > 0) {
+            log.info("[AutoClose] 마감 처리 완료 대상={} 실제변경={} limit={}", scanned, updated, limit);
         }
     }
 }

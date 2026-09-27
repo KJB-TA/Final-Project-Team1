@@ -21,6 +21,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -83,8 +85,10 @@ public class TicketCheckinService {
         Instant now = clock.instant();
         requireWithinCheckinWindow(ticket, now);
         ticket.checkIn(now);
-        recordQuietly(ticket.getId(), CheckinAction.CHECK_IN, organizer.userId(), method, now);
-        recommendationClient.sendCheckinEvent(ticket.getUserId(), ticket.getExpoId());
+        afterCommit(() -> {
+            recordQuietly(ticket.getId(), CheckinAction.CHECK_IN, organizer.userId(), method, now);
+            recommendationClient.sendCheckinEvent(ticket.getUserId(), ticket.getExpoId());
+        });
         return CheckinResult.from(ticket);
     }
 
@@ -101,9 +105,24 @@ public class TicketCheckinService {
         ticket.cancelCheckIn();
         // 실제로 되돌린 경우에만 남긴다. 두 번 눌렀다고 이력이 두 줄이면 이력이 거짓말을 한다.
         if (wasCheckedIn) {
-            recordQuietly(ticket.getId(), CheckinAction.CANCEL, organizer.userId(), null, now);
+            afterCommit(() -> recordQuietly(ticket.getId(), CheckinAction.CANCEL, organizer.userId(), null, now));
         }
         return CheckinResult.from(ticket);
+    }
+
+    // 이력(REQUIRES_NEW)과 추천 이벤트는 체크인이 커밋된 뒤에만 남긴다. 먼저 남기면 체크인이
+    // 롤백돼도 이력과 이벤트는 그대로 남는다(예약 쪽 AfterCommitExecutor 와 같은 방식).
+    private void afterCommit(Runnable task) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            task.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                task.run();
+            }
+        });
     }
 
     // 이력은 부가 기능이다. 기록이 실패해도 체크인은 그대로 둔다.

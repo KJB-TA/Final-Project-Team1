@@ -176,13 +176,26 @@ public class ExpoPromotionService {
         stale.cancel(clock);
     }
 
+    // 슬롯 수는 신청 때도 보지만, 남은 1자리에 두 명이 신청해 둘 다 결제하면 그것만으로는 넘친다.
+    // ACTIVE 로 켜는 순간 다시 세고, 가득 찼으면 방금 받은 결제를 돌려주고 내린다.
+    // 예외를 던지지 않는다 - 롤백되면 환불 기록이 사라진다.
+    private void activateOrRefund(ExpoPromotion promotion) {
+        if (promotionRepository.countByStatus(ExpoPromotionStatus.ACTIVE) >= bannerMaxSlots) {
+            log.warn("banner slots full on activation, refunding promotionId={}", promotion.getId());
+            paymentService.cancel(promotion.getId(), "배너 슬롯 초과로 환불");
+            promotion.cancel(clock);
+            return;
+        }
+        promotion.confirm(clock);
+    }
+
     // 결제 확인 경로(주최자 화면·웹훅)가 모두 이 함수로 상태를 바꾼다
     private void applyPaymentResult(ExpoPromotion promotion, PaymentApprovalResult result) {
         if (promotion.getStatus() != ExpoPromotionStatus.PENDING) {
             throw new BusinessException(ErrorCode.INVALID_STATE_TRANSITION);
         }
         switch (result.outcome()) {
-            case SUCCESS -> promotion.confirm(clock);
+            case SUCCESS -> activateOrRefund(promotion);
             case FAILED_CONFIRMED -> promotion.cancel(clock);
             case AMOUNT_MISMATCH -> {
                 log.warn("promotion payment amount mismatch promotionId={}", promotion.getId());

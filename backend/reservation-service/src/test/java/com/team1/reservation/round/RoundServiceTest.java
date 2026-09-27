@@ -22,6 +22,7 @@ import java.time.ZoneOffset;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -126,26 +127,26 @@ class RoundServiceTest {
     @Test
     @DisplayName("자동 마감 대상 조회는 limit 을 상한으로 잘라서 요청한다")
     void capsFinishedExpoIdsLimit() {
-        when(rounds.findExpoIdsWithAllRoundsEndedBefore(any(), any(Pageable.class)))
+        when(rounds.findExpoIdsWithAllRoundsEndedBefore(any(), anyLong(), any(Pageable.class)))
                 .thenReturn(java.util.List.of(1L, 2L));
 
         assertThat(service.finishedExpoIds(NOW, 999_999)).containsExactly(1L, 2L);
 
         org.mockito.ArgumentCaptor<Pageable> captor = org.mockito.ArgumentCaptor.forClass(Pageable.class);
-        verify(rounds).findExpoIdsWithAllRoundsEndedBefore(any(), captor.capture());
+        verify(rounds).findExpoIdsWithAllRoundsEndedBefore(any(), anyLong(), captor.capture());
         assertThat(captor.getValue().getPageSize()).isEqualTo(RoundService.MAX_FINISHED_EXPO_LIMIT);
     }
 
     @Test
     @DisplayName("limit 이 0 이하여도 최소 1 로 보정한다")
     void clampsNonPositiveLimit() {
-        when(rounds.findExpoIdsWithAllRoundsEndedBefore(any(), any(Pageable.class)))
+        when(rounds.findExpoIdsWithAllRoundsEndedBefore(any(), anyLong(), any(Pageable.class)))
                 .thenReturn(java.util.List.of());
 
         service.finishedExpoIds(NOW, 0);
 
         org.mockito.ArgumentCaptor<Pageable> captor = org.mockito.ArgumentCaptor.forClass(Pageable.class);
-        verify(rounds).findExpoIdsWithAllRoundsEndedBefore(any(), captor.capture());
+        verify(rounds).findExpoIdsWithAllRoundsEndedBefore(any(), anyLong(), captor.capture());
         assertThat(captor.getValue().getPageSize()).isEqualTo(1);
     }
 }

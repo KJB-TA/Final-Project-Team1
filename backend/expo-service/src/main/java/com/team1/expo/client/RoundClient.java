@@ -25,8 +25,8 @@ public interface RoundClient {
     /** GET /internal/v1/rounds/fee-summary?expoIds= — 목록 유료/무료 배지용 일괄 조회. */
     List<ExpoFeeView> feeSummaries(List<Long> expoIds);
 
-    /** GET /internal/v1/rounds/finished-expos?before= — 자동 마감 대상 expoId 목록. */
-    List<Long> finishedExpoIds(Instant before, int limit);
+    /** GET /internal/v1/rounds/finished-expos?before=&afterExpoId= — 자동 마감 대상 expoId 목록(id 오름차순). */
+    List<Long> finishedExpoIds(Instant before, long afterExpoId, int limit);
 
     /** GET /internal/v1/rounds/nearest-deadlines?expoIds= — 모집마감일순 정렬용 일괄 조회. */
     Map<Long, Instant> nearestDeadlines(List<Long> expoIds);

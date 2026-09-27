@@ -115,10 +115,11 @@ public class RestClientRoundClient implements RoundClient {
     }
 
     @Override
-    public List<Long> finishedExpoIds(Instant before, int limit) {
+    public List<Long> finishedExpoIds(Instant before, long afterExpoId, int limit) {
         try {
             Long[] ids = restClient.get()
-                    .uri("/internal/v1/rounds/finished-expos?before={before}&limit={limit}", before, limit)
+                    .uri("/internal/v1/rounds/finished-expos?before={before}&afterExpoId={afterExpoId}&limit={limit}",
+                            before, afterExpoId, limit)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + internalToken)
                     .header(TraceId.HEADER, TraceId.get())
                     .retrieve()
