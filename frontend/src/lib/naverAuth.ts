@@ -19,7 +19,8 @@ export async function requestNaverAuthCode(): Promise<NaverAuthResult> {
   if (!NAVER_CLIENT_ID) throw new Error('네이버 로그인이 설정되지 않았습니다.')
   const redirectUri = naverCallbackUrl()
   // CSRF 방지용 state. 콜백에서 그대로 돌아오면 우리가 시작한 요청임을 확인한다.
-  const state = Math.random().toString(36).slice(2) + Date.now().toString(36)
+  // 공격자가 값을 예측하지 못하도록 Math.random 이 아닌 암호학적 난수를 쓴다.
+  const state = crypto.randomUUID()
   const url =
     'https://nid.naver.com/oauth2.0/authorize' +
     '?response_type=code' +

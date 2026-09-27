@@ -50,6 +50,8 @@ services:
       <<: *backend-env
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@team1.local}
       SUPER_ADMIN_PASSWORD_HASH: ${SUPER_ADMIN_PASSWORD_HASH}
+      # 구글 액세스 토큰의 발급 대상(aud) 확인용 Client ID. 비어 있으면 구글 로그인만 동작 안 함
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       # 카카오 로그인 인가 코드 교환용 REST API 키. 비어 있으면 카카오 로그인만 동작 안 함
       KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
       # REST 키에 클라이언트 시크릿이 켜져 있으면 그 값도 필요(카카오 신규 앱 기본 활성화)
