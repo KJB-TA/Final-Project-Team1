@@ -8,6 +8,7 @@ public record InternalPromotionPaymentResponse(
         String paymentId,
         int amount,
         Instant paidAt,
+        Instant cancelledAt,
         String status,
         Long expoId
 ) {
@@ -16,6 +17,7 @@ public record InternalPromotionPaymentResponse(
                 tx.getPaymentId(),
                 tx.getAmount(),
                 tx.getPaidAt(),
+                tx.getCancelledAt(),
                 tx.getStatus().name(),
                 expoId
         );

@@ -62,24 +62,35 @@ public class SettlementService {
         List<ReservationPaymentItem> reservationPayments = reservationPaymentClient.getPayments(from, to);
         List<ExpoPromotionPaymentItem> promotionPayments = expoPromotionPaymentClient.getPayments(from, to);
 
-        long reservationRevenue = sum(reservationPayments, ReservationPaymentItem::status, "PAID", ReservationPaymentItem::amount);
-        long reservationRefund = sum(reservationPayments, ReservationPaymentItem::status, "CANCELLED", ReservationPaymentItem::amount);
-        long promotionRevenue = sum(promotionPayments, ExpoPromotionPaymentItem::status, "PAID", ExpoPromotionPaymentItem::amount);
-        long promotionRefund = sum(promotionPayments, ExpoPromotionPaymentItem::status, "CANCELLED", ExpoPromotionPaymentItem::amount);
+        // 받아온 결제에는 "결제만 이 기간", "환불만 이 기간", "둘 다 이 기간" 이 섞여 있다. 사건 시각으로 나눈다.
+        Window window = new Window(from, to);
+        List<Event> events = new ArrayList<>();
+        for (ReservationPaymentItem item : reservationPayments) {
+            events.add(new Event(Source.RESERVATION, item.expoId(), item.amount(), item.paidAt(), item.cancelledAt()));
+        }
+        for (ExpoPromotionPaymentItem item : promotionPayments) {
+            events.add(new Event(Source.PROMOTION, item.expoId(), item.amount(), item.paidAt(), item.cancelledAt()));
+        }
+
+        long reservationRevenue = sumRevenue(events, Source.RESERVATION, window);
+        long reservationRefund = sumRefund(events, Source.RESERVATION, window);
+        long promotionRevenue = sumRevenue(events, Source.PROMOTION, window);
+        long promotionRefund = sumRefund(events, Source.PROMOTION, window);
 
         long totalRevenue = reservationRevenue + promotionRevenue;
         long totalRefund = reservationRefund + promotionRefund;
         long netRevenue = totalRevenue - totalRefund;
         long platformFee = Math.round(netRevenue * FEE_RATE);
 
-        int reservationPaidCount = count(reservationPayments, ReservationPaymentItem::status, "PAID");
-        int reservationRefundCount = count(reservationPayments, ReservationPaymentItem::status, "CANCELLED");
-        int promotionPaidCount = count(promotionPayments, ExpoPromotionPaymentItem::status, "PAID");
-        int promotionRefundCount = count(promotionPayments, ExpoPromotionPaymentItem::status, "CANCELLED");
+        int reservationPaidCount = countRevenue(events, Source.RESERVATION, window);
+        int reservationRefundCount = countRefund(events, Source.RESERVATION, window);
+        int promotionPaidCount = countRevenue(events, Source.PROMOTION, window);
+        int promotionRefundCount = countRefund(events, Source.PROMOTION, window);
 
-        List<SettlementBucket> buckets = buildBuckets(period, start, end, reservationPayments, promotionPayments);
-        List<ExpoRanking> topExpos = buildTopExpos(reservationPayments, promotionPayments);
-        List<CategoryRanking> topCategories = buildTopCategories(reservationPayments, promotionPayments);
+        List<SettlementBucket> buckets = buildBuckets(period, start, end, events, window);
+        Map<Long, Long> revenueByExpo = revenueByExpo(events, window);
+        List<ExpoRanking> topExpos = buildTopExpos(revenueByExpo);
+        List<CategoryRanking> topCategories = buildTopCategories(revenueByExpo);
 
         String aiSummary = includeSummary
                 ? settlementInsightService.summarize(start + " ~ " + end, totalRevenue, totalRefund, netRevenue,
@@ -116,12 +127,10 @@ public class SettlementService {
      * DAY·WEEK·MONTH 는 하루 단위로, YEAR 는 달 단위로 쪼갠다 - 1년을 365칸 달력으로 그리는 건
      * 의미가 없고, 화면의 달력·클릭 상세는 MONTH 뷰에서만 쓴다.
      *
-     * <p>결제는 paidAt, 환불은 cancelledAt(프로모션은 그 필드가 없어 paidAt으로 근사) 기준으로 칸을
-     * 정한다 - "언제 발생했는지" 기준이라야 그 날짜를 눌렀을 때 보이는 숫자와 맞는다.
+     * <p>매출은 결제 시각, 환불은 환불 시각이 속한 칸에 넣는다 - 합계와 같은 기준이다.
      */
     private List<SettlementBucket> buildBuckets(SettlementPeriod period, LocalDate start, LocalDate end,
-                                                List<ReservationPaymentItem> reservationPayments,
-                                                List<ExpoPromotionPaymentItem> promotionPayments) {
+                                                List<Event> events, Window window) {
         boolean byMonth = period == SettlementPeriod.YEAR;
         Map<String, long[]> byLabel = new LinkedHashMap<>(); // [revenue, refund]
 
@@ -135,19 +144,9 @@ public class SettlementService {
             }
         }
 
-        for (ReservationPaymentItem item : reservationPayments) {
-            if ("PAID".equals(item.status()) && item.paidAt() != null) {
-                addTo(byLabel, label(item.paidAt(), byMonth), 0, item.amount());
-            } else if ("CANCELLED".equals(item.status())) {
-                Instant at = item.cancelledAt() != null ? item.cancelledAt() : item.updatedAt();
-                if (at != null) addTo(byLabel, label(at, byMonth), 1, item.amount());
-            }
-        }
-        for (ExpoPromotionPaymentItem item : promotionPayments) {
-            if (item.paidAt() == null) continue;
-            String label = label(item.paidAt(), byMonth);
-            if ("PAID".equals(item.status())) addTo(byLabel, label, 0, item.amount());
-            else if ("CANCELLED".equals(item.status())) addTo(byLabel, label, 1, item.amount());
+        for (Event e : events) {
+            if (e.isRevenueIn(window)) addTo(byLabel, label(e.paidAt(), byMonth), 0, e.amount());
+            if (e.isRefundIn(window)) addTo(byLabel, label(e.cancelledAt(), byMonth), 1, e.amount());
         }
 
         List<SettlementBucket> buckets = new ArrayList<>();
@@ -164,20 +163,18 @@ public class SettlementService {
         if (slot != null) slot[index] += amount;
     }
 
-    /** 랭킹은 환불을 빼지 않은 결제(PAID) 총액 기준이다 - "매출" 이라는 이름 그대로. */
-    private List<ExpoRanking> buildTopExpos(List<ReservationPaymentItem> reservationPayments,
-                                            List<ExpoPromotionPaymentItem> promotionPayments) {
+    /** 랭킹은 환불을 빼지 않은, 이 기간에 결제된 총액 기준이다 - "매출" 이라는 이름 그대로. */
+    private Map<Long, Long> revenueByExpo(List<Event> events, Window window) {
         Map<Long, Long> revenueByExpo = new LinkedHashMap<>();
-        for (ReservationPaymentItem item : reservationPayments) {
-            if ("PAID".equals(item.status()) && item.expoId() != null) {
-                revenueByExpo.merge(item.expoId(), (long) item.amount(), Long::sum);
+        for (Event e : events) {
+            if (e.isRevenueIn(window) && e.expoId() != null) {
+                revenueByExpo.merge(e.expoId(), (long) e.amount(), Long::sum);
             }
         }
-        for (ExpoPromotionPaymentItem item : promotionPayments) {
-            if ("PAID".equals(item.status()) && item.expoId() != null) {
-                revenueByExpo.merge(item.expoId(), (long) item.amount(), Long::sum);
-            }
-        }
+        return revenueByExpo;
+    }
+
+    private List<ExpoRanking> buildTopExpos(Map<Long, Long> revenueByExpo) {
         if (revenueByExpo.isEmpty()) return List.of();
 
         List<Map.Entry<Long, Long>> sorted = revenueByExpo.entrySet().stream()
@@ -191,19 +188,7 @@ public class SettlementService {
                 .toList();
     }
 
-    private List<CategoryRanking> buildTopCategories(List<ReservationPaymentItem> reservationPayments,
-                                                      List<ExpoPromotionPaymentItem> promotionPayments) {
-        Map<Long, Long> revenueByExpo = new LinkedHashMap<>();
-        for (ReservationPaymentItem item : reservationPayments) {
-            if ("PAID".equals(item.status()) && item.expoId() != null) {
-                revenueByExpo.merge(item.expoId(), (long) item.amount(), Long::sum);
-            }
-        }
-        for (ExpoPromotionPaymentItem item : promotionPayments) {
-            if ("PAID".equals(item.status()) && item.expoId() != null) {
-                revenueByExpo.merge(item.expoId(), (long) item.amount(), Long::sum);
-            }
-        }
+    private List<CategoryRanking> buildTopCategories(Map<Long, Long> revenueByExpo) {
         if (revenueByExpo.isEmpty()) return List.of();
 
         Map<Long, String> categories = expoDirectoryClient.categories(revenueByExpo.keySet());
@@ -217,12 +202,39 @@ public class SettlementService {
                 .toList();
     }
 
-    private <T> long sum(List<T> items, java.util.function.Function<T, String> statusOf, String status,
-                         java.util.function.ToIntFunction<T> amountOf) {
-        return items.stream().filter(i -> status.equals(statusOf.apply(i))).mapToLong(amountOf::applyAsInt).sum();
+    private long sumRevenue(List<Event> events, Source source, Window window) {
+        return events.stream().filter(e -> e.source() == source && e.isRevenueIn(window)).mapToLong(Event::amount).sum();
     }
 
-    private <T> int count(List<T> items, java.util.function.Function<T, String> statusOf, String status) {
-        return (int) items.stream().filter(i -> status.equals(statusOf.apply(i))).count();
+    private long sumRefund(List<Event> events, Source source, Window window) {
+        return events.stream().filter(e -> e.source() == source && e.isRefundIn(window)).mapToLong(Event::amount).sum();
+    }
+
+    private int countRevenue(List<Event> events, Source source, Window window) {
+        return (int) events.stream().filter(e -> e.source() == source && e.isRevenueIn(window)).count();
+    }
+
+    private int countRefund(List<Event> events, Source source, Window window) {
+        return (int) events.stream().filter(e -> e.source() == source && e.isRefundIn(window)).count();
+    }
+
+    private enum Source { RESERVATION, PROMOTION }
+
+    /** [from, to) 반열린 구간 - 경계 시각의 결제가 두 기간에 동시에 잡히지 않게 한다. */
+    private record Window(Instant from, Instant to) {
+        boolean contains(Instant at) {
+            return at != null && !at.isBefore(from) && at.isBefore(to);
+        }
+    }
+
+    /** 결제 1건을 "결제 사건" 과 "환불 사건" 두 시각으로 본다. 결제된 적 없는 취소는 환불이 아니다. */
+    private record Event(Source source, Long expoId, int amount, Instant paidAt, Instant cancelledAt) {
+        boolean isRevenueIn(Window window) {
+            return window.contains(paidAt);
+        }
+
+        boolean isRefundIn(Window window) {
+            return paidAt != null && window.contains(cancelledAt);
+        }
     }
 }
