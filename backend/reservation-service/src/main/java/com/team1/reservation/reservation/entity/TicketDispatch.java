@@ -121,6 +121,13 @@ public class TicketDispatch {
     }
 
 
+    // 더 보낼 이유가 없어진 통지(취소된 예약의 발급 등). 재시도하지 않도록 바로 끝낸다.
+    public void abandon(String reason, Instant now) {
+        this.status = TicketDispatchStatus.GAVE_UP;
+        this.lastError = truncate(reason);
+        this.updatedAt = now;
+    }
+
     // 시도 실패를 기록하고 다음 시도 시각을 미룬다. 상한·간격은 type 별 정책이 정한다.
     public void failed(String reason, RetryPolicy policy, Instant now) {
         this.attempts++;

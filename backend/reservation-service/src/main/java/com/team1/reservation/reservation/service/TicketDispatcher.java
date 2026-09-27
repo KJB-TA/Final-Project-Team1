@@ -4,10 +4,12 @@ import com.team1.reservation.client.IssueTicketCommand;
 import com.team1.reservation.client.IssuedTicket;
 import com.team1.reservation.client.TicketClient;
 import com.team1.reservation.common.TraceId;
+import com.team1.reservation.reservation.entity.ReservationStatus;
 import com.team1.reservation.reservation.entity.RetryPolicy;
 import com.team1.reservation.reservation.entity.TicketDispatch;
 import com.team1.reservation.reservation.entity.TicketDispatchStatus;
 import com.team1.reservation.reservation.entity.TicketDispatchType;
+import com.team1.reservation.reservation.repository.ReservationRepository;
 import com.team1.reservation.reservation.repository.TicketDispatchRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +34,7 @@ public class TicketDispatcher {
     private static final Logger log = LoggerFactory.getLogger(TicketDispatcher.class);
 
     private final TicketDispatchRepository queue;
+    private final ReservationRepository reservations;
     private final TicketClient ticketClient;
     private final Clock clock;
     private final RetryPolicy issuePolicy;
@@ -40,6 +43,7 @@ public class TicketDispatcher {
     // 생성자가 둘이므로 Spring 이 쓸 쪽을 명시한다. 없으면 컨텍스트가 뜨지 않는다.
     @Autowired
     public TicketDispatcher(TicketDispatchRepository queue,
+                            ReservationRepository reservations,
                             TicketClient ticketClient,
                             Clock clock,
                             @Value("${scheduler.ticket-dispatch.issue.max-attempts}") int issueMaxAttempts,
@@ -48,15 +52,17 @@ public class TicketDispatcher {
                             @Value("${scheduler.ticket-dispatch.revoke.max-attempts}") int revokeMaxAttempts,
                             @Value("${scheduler.ticket-dispatch.revoke.backoff}") Duration revokeBackoff,
                             @Value("${scheduler.ticket-dispatch.revoke.max-backoff}") Duration revokeMaxBackoff) {
-        this(queue, ticketClient, clock,
+        this(queue, reservations, ticketClient, clock,
                 new RetryPolicy(issueMaxAttempts, issueBackoff, issueMaxBackoff),
                 new RetryPolicy(revokeMaxAttempts, revokeBackoff, revokeMaxBackoff));
     }
 
     // Test 가 정책을 직접 넣을 수 있게 열어둔다.
-    public TicketDispatcher(TicketDispatchRepository queue, TicketClient ticketClient, Clock clock,
+    public TicketDispatcher(TicketDispatchRepository queue, ReservationRepository reservations,
+                            TicketClient ticketClient, Clock clock,
                             RetryPolicy issuePolicy, RetryPolicy revokePolicy) {
         this.queue = queue;
+        this.reservations = reservations;
         this.ticketClient = ticketClient;
         this.clock = clock;
         this.issuePolicy = issuePolicy;
@@ -68,6 +74,15 @@ public class TicketDispatcher {
     public boolean dispatch(Long dispatchId) {
         TicketDispatch dispatch = queue.findById(dispatchId).orElse(null);
         if (dispatch == null || !dispatch.isPending()) {
+            return false;
+        }
+
+        // 발급 재시도가 밀린 사이 취소됐을 수 있다. 무효화는 티켓이 없어 이미 성공으로 끝났으므로,
+        // 여기서 보내면 취소된 예약에 유효한 티켓이 생긴다.
+        if (dispatch.getType() == TicketDispatchType.ISSUE && !isStillConfirmed(dispatch.getReservationId())) {
+            dispatch.abandon("reservation is no longer CONFIRMED", clock.instant());
+            log.info("ticket ISSUE abandoned reservationId={} traceId={}",
+                    dispatch.getReservationId(), TraceId.get());
             return false;
         }
 
@@ -85,6 +100,13 @@ public class TicketDispatcher {
             logFailure(dispatch, e);
             return false;
         }
+    }
+
+    // 행을 잠가 둔 채 발급까지 마친다. 그동안 들어온 취소는 기다렸다가 무효화를 뒤에 보낸다.
+    private boolean isStillConfirmed(Long reservationId) {
+        return reservations.findByIdForUpdate(reservationId)
+                .map(r -> r.getStatus() == ReservationStatus.CONFIRMED)
+                .orElse(false);
     }
 
     // 무효화 실패는 "취소된 예약으로 입장 가능" 이라 발급 실패보다 나쁘다. 훨씬 오래 시도한다.
