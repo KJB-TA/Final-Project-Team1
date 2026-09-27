@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -54,6 +55,38 @@ class ReservationSummaryApiTest extends ApiTestSupport {
         assertThat(rounds.get(0).path("roundId").asLong()).isEqualTo(1L);
         assertThat(rounds.get(0).path("confirmed").asInt()).isEqualTo(30);
         assertThat(rounds.get(0).path("cancelled").asInt()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("회차별 체크인 수를 합친다 - 체크인이 없는 회차는 0")
+    void 체크인_수_병합() {
+        when(reservationClient.getSummary(expoId)).thenReturn(List.of(
+                new ReservationSummaryItem(1L, 100, 30, 5),
+                new ReservationSummaryItem(2L, 50, 10, 1)
+        ));
+        when(ticketClient.checkedInByRound(expoId)).thenReturn(Map.of(1L, 12L));
+
+        JsonNode rounds = get("/api/v1/expos/" + expoId + "/reservations/summary", ownerToken)
+                .getBody().path("data").path("rounds");
+
+        assertThat(rounds.get(0).path("checkedIn").asInt()).isEqualTo(12);
+        assertThat(rounds.get(1).path("checkedIn").asInt()).isZero();
+    }
+
+    @Test
+    @DisplayName("체크인 집계를 못 받아도 200 이고 체크인 칸만 비운다")
+    void 체크인_집계_실패_부분_허용() {
+        when(reservationClient.getSummary(expoId)).thenReturn(List.of(
+                new ReservationSummaryItem(1L, 100, 30, 5)
+        ));
+        when(ticketClient.checkedInByRound(expoId)).thenReturn(null);
+
+        ResponseEntity<JsonNode> response = get("/api/v1/expos/" + expoId + "/reservations/summary", ownerToken);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode round = response.getBody().path("data").path("rounds").get(0);
+        assertThat(round.path("confirmed").asInt()).isEqualTo(30);
+        assertThat(round.path("checkedIn").isNull() || round.path("checkedIn").isMissingNode()).isTrue();
     }
 
     @Test

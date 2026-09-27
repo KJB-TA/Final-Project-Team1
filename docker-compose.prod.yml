@@ -71,6 +71,8 @@ services:
       # 빠지면 결제 확인 없이 무조건 PAID 가 되므로 운영에서는 반드시 켠다.
       SPRING_PROFILES_ACTIVE: ${PAYMENT_SERVICE_PROFILES:-prod,portone-live}
       RESERVATION_SERVICE_URL: http://reservation-service:8083
+      # 예약 현황의 회차별 체크인 수. 빠지면 체크인 칸만 비고 나머지는 정상 표시된다.
+      TICKET_SERVICE_URL: http://ticket-service:8084
       # 박람회 공개 시 태깅 이벤트(#234). 없으면 localhost 로 가서 조용히 실패하고 태그가 생기지 않는다.
       RECOMMENDATION_SERVICE_URL: http://recommendation-service:8085
       # 자연어 검색(#261). 빠지면 검색이 조용히 키워드 폴백만 하고 해석 칩이 안 뜬다.

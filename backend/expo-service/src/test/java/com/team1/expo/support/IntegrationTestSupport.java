@@ -1,6 +1,7 @@
 package com.team1.expo.support;
 
 import com.team1.expo.client.ReservationClient;
+import com.team1.expo.client.TicketClient;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,6 +22,9 @@ public abstract class IntegrationTestSupport {
 
     @MockBean
     protected ReservationClient reservationClient;
+
+    @MockBean
+    protected TicketClient ticketClient;
 
     protected static final String TEST_JWT_SECRET =
             "test-secret-0123456789abcdef0123456789abcdef0123456789abcdef";
