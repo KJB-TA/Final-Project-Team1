@@ -36,7 +36,7 @@ export default function CheckinReportCard({ expoId }: { expoId: number }) {
         <div>
           <span className="section-title" style={{ fontSize: 15 }}>현장 체크인 결과</span>
           <p style={{ fontSize: 12, color: 'var(--sub)', marginTop: 4 }}>
-            입장 기록을 모아 요약해 드립니다. 행사가 끝난 뒤 확인하세요.
+            모든 회차의 입장 기록을 합산해 요약하고, 회차별 내역을 함께 보여드립니다. 행사가 끝난 뒤 확인하세요.
           </p>
         </div>
         <button className="btn btn-outline btn-sm" onClick={load} disabled={loading}>
@@ -56,14 +56,56 @@ export default function CheckinReportCard({ expoId }: { expoId: number }) {
             </div>
           )}
 
+          <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 10 }}>
+            박람회 전체
+            {report.rounds.length > 0 && (
+              <span style={{ fontWeight: 500, color: 'var(--sub)' }}> · {report.rounds.length}개 회차 합산</span>
+            )}
+          </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, marginBottom: 14 }}>
             <Stat label="예약 확정" value={`${report.reserved}명`} />
             <Stat label="실제 입장" value={`${report.checkedIn}명`} accent />
             <Stat label="미입장" value={`${report.noShow}명`} />
             <Stat label="입장률" value={`${report.checkinRate}%`} accent />
-            {peak && <Stat label="가장 붐빈 시간" value={`${peak.hour}시 (${peak.count}건)`} />}
+            {peak && <Stat label="가장 붐빈 시간" value={`${fmtMonthDay(peak.date)} ${peak.hour}시 (${peak.count}건)`} />}
             {report.reverted > 0 && <Stat label="되돌린 체크인" value={`${report.reverted}건`} />}
           </div>
+
+          {report.rounds.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>회차별</p>
+              <div className="table-wrap" style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>회차</th>
+                      <th>일시</th>
+                      <th style={{ textAlign: 'right' }}>예약 확정</th>
+                      <th style={{ textAlign: 'right' }}>입장</th>
+                      <th style={{ textAlign: 'right' }}>미입장</th>
+                      <th style={{ textAlign: 'right' }}>입장률</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.rounds.map(r => (
+                      <tr key={r.roundId}>
+                        <td style={{ fontWeight: 700, color: 'var(--text)' }}>
+                          {r.sequence ? `${r.sequence}회차` : `회차 #${r.roundId}`}
+                        </td>
+                        <td>{fmtRoundStart(r.startsAt)}</td>
+                        <td style={{ textAlign: 'right' }}>{r.reserved}명</td>
+                        <td style={{ textAlign: 'right' }}>{r.checkedIn}명</td>
+                        <td style={{ textAlign: 'right' }}>{r.noShow}명</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary)' }}>
+                          {r.reserved > 0 ? `${r.checkinRate}%` : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {Object.keys(report.byMethod).length > 0 && (
             <p style={{ fontSize: 13, color: 'var(--sub)' }}>
@@ -92,6 +134,19 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
       }}>{value}</p>
     </div>
   )
+}
+
+/** "2026-11-20" → "11/20". 서버가 한국 시간 기준 날짜를 주므로 시간대 변환을 하지 않는다. */
+function fmtMonthDay(date: string) {
+  const [, m, d] = date.split('-')
+  return `${Number(m)}/${Number(d)}`
+}
+
+function fmtRoundStart(startsAt: string | null) {
+  if (!startsAt) return '-'
+  return new Date(startsAt).toLocaleString('ko-KR', {
+    month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit',
+  })
 }
 
 function methodLabel(method: string) {
