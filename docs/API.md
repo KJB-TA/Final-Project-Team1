@@ -1,8 +1,12 @@
+# API
+
 # API·통합 계약
 
 > 개정: v.17 / 2026-09-28 — 개발 종료 후 `dev`(PR #331 머지 시점) 코드와 전수 대조. 모든 요청·응답 형태, 오류 코드, 내부 계약을 실제 구현대로 고쳤다. 코드가 문서와 다른 곳은 코드를 기준으로 삼았다.
->
+> 
+> 
 > 이전 개정과 달라진 큰 것: 오류 코드는 `data.code` 에 있다(최상위 `code` 아님), Refresh Token 은 없다, 소셜 로그인 3종과 마이페이지(닉네임·비밀번호·프로필 사진) 추가, 배너 결제 확인·환불·웹훅 추가, 캘린더·AI 일정 추천·자연어 검색·소개글 초안·체크인 결과 요약 추가, 체크인 되돌리기의 422 삭제, 내부 계약 전체 재작성.
+> 
 
 ## 공통 사항
 
@@ -69,6 +73,7 @@
 | 500 | INTERNAL_ERROR | 예상하지 못한 서버 오류 | 전체 |
 
 > Ticket·recommendation 은 매핑되지 않은 예외(예: 잘못된 enum 값)를 400 이 아니라 500 `INTERNAL_ERROR` 로 낸다. Settlement 는 `ResponseStatusException` 만 위 형식으로 내고, 그 외 오류는 Spring 기본 JSON 이다.
+> 
 
 ---
 
@@ -99,6 +104,7 @@
 ```
 
 > **닉네임은 자동으로 만든다.** 이름을 그대로 쓰되 누군가의 닉네임과 겹치면 `이름#1234`(4자리 난수) 를 붙인다. 응답에는 없고 `GET /users/me` 에서 본다.
+> 
 
 **Errors** 400 INVALID_REQUEST, 409 DUPLICATE_EMAIL
 
@@ -121,6 +127,7 @@
 **Errors** 401 INVALID_CREDENTIALS(이메일 없음·비밀번호 불일치·소셜 전용 계정 모두 같은 코드)
 
 > Refresh 엔드포인트는 없다. 프론트는 `expiresAt` 을 보고 만료 전 재로그인을 안내한다.
+> 
 
 ---
 
@@ -165,6 +172,7 @@
 **Response 200** — `login` 과 동일
 
 > 카카오가 이메일을 주지 않거나 `is_email_verified` 가 false 면 `kakao_{id}@social.expohub.local` 자리표시 이메일로 가입한다. 이 도메인으로는 이메일 가입·로그인이 막혀 있어 다른 사람이 그 계정을 가로챌 수 없다.
+> 
 
 ---
 
@@ -382,6 +390,7 @@
 **Errors** 403 FORBIDDEN(역할), 409 CHANNEL_ALREADY_EXISTS, 409 DUPLICATE_CHANNEL_NAME
 
 > 같은 이름으로 동시에 만들면 DB UNIQUE 에 걸려 409 가 아니라 500 이 난다. 알려진 제한.
+> 
 
 ---
 
@@ -453,6 +462,7 @@
 ```
 
 > 주최자 화면(등록·목록·상세·수정)은 PK 를 `id` 로, 공개 목록·상세는 `expoId` 로 내려준다. 프론트가 한 곳에서 흡수한다.
+> 
 
 **Errors** 400 INVALID_REQUEST, 403 FORBIDDEN(역할), 404 NOT_FOUND(타인의 채널)
 
@@ -493,6 +503,7 @@
 **Errors** 400 INVALID_REQUEST, 404 NOT_FOUND
 
 > `detailImageUrls` 를 보내면 기존 목록을 통째로 교체한다.
+> 
 
 ---
 
@@ -518,6 +529,7 @@
 ```
 
 > Gemini 키가 없거나 호출이 실패하면 `{ "description": null, "applied": false }` 로 200 이다(fail-open). 화면은 "지금은 초안을 만들 수 없다" 로 안내한다.
+> 
 
 **Errors** 400 INVALID_REQUEST, 403 FORBIDDEN(역할), 404 NOT_FOUND(타인의 채널)
 
@@ -582,8 +594,10 @@
 | paid | null | 판정할 수 없다 — 예약 가능한 회차가 없거나 회차 조회에 실패했다. 화면은 배지를 숨긴다 |
 
 > **recommended 와 newest 는 현재 같은 정렬(createdAt DESC)이다.** VIP 배너는 목록 정렬에 섞지 않고 `getActivePromotions` 를 프론트가 따로 얹는다.
->
+> 
+> 
 > **deadline 정렬은 Reservation-Service 가 매긴다.** 필터에 맞는 공개 박람회 id 전부를 `deadlineSort` 내부 호출로 넘겨 가장 가까운 회차 종료 시각 순으로 페이지를 받는다. 실패하면 503 `DEPENDENCY_UNAVAILABLE` 이다(fail-closed) — 정렬이 틀린 목록을 맞는 것처럼 주지 않는다.
+> 
 
 **Errors** 400 INVALID_REQUEST(허용 범위 밖 카테고리), 503 DEPENDENCY_UNAVAILABLE(deadline 정렬 조회 실패)
 
@@ -677,6 +691,7 @@
 **Errors** 403 FORBIDDEN(타인의 박람회), 404 NOT_FOUND, 409 PROMOTION_EXPO_NOT_PUBLISHED, 409 PROMOTION_SLOT_FULL(ACTIVE 가 슬롯 수 이상), 409 PROMOTION_ALREADY_EXISTS(ACTIVE 배너 있음), 503 DEPENDENCY_UNAVAILABLE(PG 사전 등록 실패)
 
 > 남아 있던 PENDING 신청은 새 신청 때 자동으로 정리한다. 그 PENDING 이 실제로 결제돼 있었으면 환불한다.
+> 
 
 ---
 
@@ -701,6 +716,7 @@
 **Errors** 400 PAYMENT_AMOUNT_MISMATCH, 403 FORBIDDEN, 404 NOT_FOUND, 409 INVALID_STATE_TRANSITION(CANCELLED·EXPIRED), 503 DEPENDENCY_UNAVAILABLE
 
 > 활성화 직전 슬롯 재확인은 잠금 없이 센다. 마지막 한 자리를 두고 두 주최자가 동시에 확인하면 슬롯을 1 넘길 수 있다. 알려진 제한.
+> 
 
 ---
 
@@ -713,6 +729,7 @@
 **Errors** 403 FORBIDDEN, 404 NOT_FOUND, 409 INVALID_STATE_TRANSITION(ACTIVE 가 아님)
 
 > **배너는 환불 결과와 무관하게 먼저 내린다.** PG 환불이 실패해도 200 이며, 결제 행에 실패를 기록하고 재시도 배치가 처리한다. 응답에 환불 상태가 없으므로 화면은 "환불 처리 중" 으로만 안내한다.
+> 
 
 ---
 
@@ -725,6 +742,7 @@ PortOne 이 부른다. 인증 대신 서명 검증.
 **Response** 200 처리 완료(중복·무관 이벤트 포함), 401 서명 불일치, 503 PG 재조회 결과 모름(RECEIVED 로 남겨 재전송을 받는다)
 
 > 결제 확인 화면 호출과 웹훅은 같은 `applyPaymentResult` 로 수렴한다. 웹훅이 먼저 오면 화면 호출은 멱등 200 이다.
+> 
 
 ---
 
@@ -767,6 +785,7 @@ PortOne 이 부른다. 인증 대신 서명 검증.
 **Response 200** — `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` 바이트. 봉투 없음
 
 > 명단은 개인정보를 담으므로 Log 에 본문을 남기지 않는다.
+> 
 
 **Errors** 403 FORBIDDEN, 404 NOT_FOUND, 503 DEPENDENCY_UNAVAILABLE
 
@@ -824,6 +843,7 @@ PortOne 이 부른다. 인증 대신 서명 검증.
 **Errors** 400 INVALID_REQUEST(필드 누락 포함), 403 FORBIDDEN, 404 NOT_FOUND(삭제된 회차 포함), 409 ROUND_ALREADY_STARTED, 409 ROUND_HAS_RESERVATIONS
 
 > 참가비를 바꿔도 이미 만들어진 예약의 결제 금액은 변하지 않는다. 활성 예약이 0건일 때만 수정되므로 충돌하지 않는다.
+> 
 
 ---
 
@@ -836,8 +856,10 @@ PortOne 이 부른다. 인증 대신 서명 검증.
 **Errors** 403 FORBIDDEN, 404 NOT_FOUND, 409 ROUND_ALREADY_STARTED, 409 ROUND_HAS_RESERVATIONS, 503 DEPENDENCY_UNAVAILABLE(비공개 전환 실패 — 삭제도 롤백된다)
 
 > **공개 박람회의 마지막 살아있는 회차를 삭제할 때는 로컬 삭제를 먼저 하고 비공개 전환을 같은 트랜잭션 끝에서 부른다.** 검증(예약 있음 등)에 걸리면 비공개 전환까지 가지 않고, 비공개 전환이 실패하면 삭제가 롤백된다. 어느 쪽이 실패해도 "회차 0개인 PUBLISHED" 나 "회차는 있는데 HIDDEN" 이 남지 않는다.
->
+> 
+> 
 > **삭제해도 지난 예약 이력은 보존된다.** 삭제된 회차는 목록·새 예약·공개 조건·자동 마감에서 빠지고, 내 예약·정원 반환·발급된 티켓의 시각 확인에서는 빠지지 않는다.
+> 
 
 ---
 
@@ -864,14 +886,18 @@ PortOne 이 부른다. 인증 대신 서명 검증.
 ```
 
 > 참가비가 0원인 회차는 즉시 `CONFIRMED` 로 생성되며 `expiresAt`·`paymentId` 가 응답에서 빠진다(null 필드는 직렬화하지 않는다).
->
+> 
+> 
 > `paymentId` 는 PG 에 금액을 사전 등록한 식별자다. 프론트가 이 값으로 결제창을 연다.
+> 
 
 **Errors** 400 INVALID_REQUEST, 403 FORBIDDEN(역할), 404 NOT_FOUND(없는·삭제된·종료된 회차, 비공개 박람회), 409 CAPACITY_EXCEEDED, 409 DUPLICATE_RESERVATION, 409 RESERVATION_CLOSED(이미 시작), 503 DEPENDENCY_UNAVAILABLE(공개 여부 조회·PG 사전 등록 실패)
 
 > **같은 회원의 같은 회차 유효 예약은 DB UNIQUE 로 막는다.** 유효(PENDING·CONFIRMED)일 때만 값이 생기는 생성 컬럼에 UNIQUE 를 걸었으므로 더블클릭도 두 번째가 409 다. 취소·만료 뒤 재예약은 된다.
->
+> 
+> 
 > **예약은 회차 시작 시각 전까지만 받는다.** 환불은 시작 24시간 전까지 취소한 경우에만 되므로, 프론트는 24시간 이내로 남은 회차에 "환불되지 않는 회차" 경고를 띄운다.
+> 
 
 ---
 
@@ -894,6 +920,7 @@ PortOne 이 부른다. 인증 대신 서명 검증.
 **Errors** 400 PAYMENT_AMOUNT_MISMATCH, 403 FORBIDDEN(타인의 예약 — 작업이므로 404 가 아니다), 404 NOT_FOUND, 409 INVALID_STATE_TRANSITION, 503 DEPENDENCY_UNAVAILABLE(PG 결과 모름 — 상태 유지)
 
 > 결과를 반영하는 경로는 사용자 호출·PG 웹훅·만료 배치 셋이지만 같은 멱등 함수로 수렴한다.
+> 
 
 ---
 
@@ -936,6 +963,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 | refundState | NOT_APPLICABLE(무료·미결제) · REFUNDED · REFUND_PENDING(재시도 중) · REFUND_UNRESOLVED(재시도 상한 초과, 문의 필요) · NOT_REFUNDABLE(기한 경과) |
 
 > 목록은 Ticket-Service 를 호출하지 않는다 — QR 은 상세에서만 필요하다.
+> 
 
 **Errors** 401 UNAUTHENTICATED, 403 FORBIDDEN(역할)
 
@@ -975,8 +1003,10 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 **Errors** 400 CANCELLATION_DEADLINE_PASSED(회차 시작 이후), 404 NOT_FOUND, 409 ALREADY_CHECKED_IN, 503 DEPENDENCY_UNAVAILABLE(티켓 상태 확인 실패)
 
 > **취소 기한과 환불 기한이 다르다.** 취소는 회차 시작 전까지, 환불은 시작 24시간 전까지. 그 사이 취소는 `NOT_REFUNDABLE` 로 내려가고 화면이 "취소됨 · 환불 불가" 로 표시한다. 한 번도 확정되지 않은 PENDING(결제창 닫고 취소)은 기한과 무관하게 결제돼 있으면 환불한다.
->
+> 
+> 
 > **환불 실패해도 예약 취소는 되돌리지 않는다.** 되돌리면 이미 다른 회원이 차지한 정원을 다시 빼야 한다. 환불만 배치로 재시도한다(`REFUND_PENDING` → 상한 초과 시 `REFUND_UNRESOLVED`).
+> 
 
 ---
 
@@ -995,6 +1025,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 **Errors** 400 INVALID_REQUEST(기간 90일 초과)
 
 > 공개 박람회 id 와 제목은 expo-service 에 내부 조회한다. id 조회가 실패하면 빈 목록, 제목 조회가 실패하면 `expoTitle` 이 null 이다(부분 실패 허용). `Cache-Control: no-store`.
+> 
 
 ---
 
@@ -1025,6 +1056,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 **Errors** 400 INVALID_REQUEST(기간·조건 길이), 401 UNAUTHENTICATED, 429 RATE_LIMITED(회원당 분당 5회)
 
 > "LLM 은 필터를 만들고 목록은 DB 가 만든다." 후보는 DB 에서 가져오고 LLM 은 조건(카테고리·시간대·요일)만 해석한다. 카테고리 조건이 있는데 카테고리 조회에 실패하면 후보를 비운다(fail-closed) — 조건을 무시한 추천보다 빈 추천이 낫다. 규칙 해석은 "오후" 를 무시한다(알려진 제한).
+> 
 
 ---
 
@@ -1044,6 +1076,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 | reservationNo | 예약번호 `R-XXXX-XXXX`. QR 을 쓸 수 없을 때의 수동 입력 |
 
 > 둘 중 **하나만** 보낸다. 둘 다 보내거나 하나도 안 보내면 400.
+> 
 
 **Response 200**
 
@@ -1077,10 +1110,12 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 **Errors** 403 FORBIDDEN, 404 NOT_FOUND, 409 CONFLICT(이미 USED·CANCELLED), 409 CHECKIN_NOT_OPEN(시작 1시간 전보다 이름), 409 CHECKIN_CLOSED(회차 종료), 503 DEPENDENCY_UNAVAILABLE(소유권 조회 실패)
 
 > **체크인 시간창은 회차 시작 1시간 전 ~ 회차 종료 시각.** 시간창 판정은 fail-open — 회차 시각을 못 받으면 검증만 건너뛰고 WARN 로그. 소유권 조회 실패는 fail-closed.
->
+> 
+> 
 > **티켓 행을 `SELECT … FOR UPDATE` 로 잠근 뒤 전이한다.** 같은 티켓을 두 단말이 동시에 찍어도 하나만 USED 가 되고 나머지는 409 다.
->
+> 
 > 이력 기록·추천 이벤트는 커밋 뒤에 보낸다(fail-open).
+> 
 
 ---
 
@@ -1097,6 +1132,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 **Errors** 403 FORBIDDEN, 404 NOT_FOUND, 409 CONFLICT(CANCELLED 티켓)
 
 > 시간창을 보지 않는다 — 창이 닫힌 뒤에도 오처리는 복구돼야 한다. 422 는 쓰지 않는다.
+> 
 
 ---
 
@@ -1145,6 +1181,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 | period | Enum | `DAY` · `WEEK` · `MONTH` · `YEAR`, 필수 |
 | date | Date | `yyyy-MM-dd`, 필수. 이 날짜가 속한 기간을 집계한다 |
 | summary | Boolean | 기본 false. true 면 Gemini 요약(`aiSummary`)을 붙인다 |
+| platfromFee / feeRate | long / double | 순매출(예약 + VIP 배너)에 feeRate(0.10)을 곱한 값 |
 
 **Response 200**
 
@@ -1174,6 +1211,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 ```
 
 > **집계는 사건 시각 기준이다.** 매출은 `paidAt`, 환불은 `cancelledAt` 이 기간 안에 있는 건을 센다(반열린 구간). 9월 결제를 10월에 환불하면 9월 매출은 그대로고 10월에 환불만 잡힌다. 결제 레코드는 Reservation·expo 에서 Pull 한다.
+> 
 
 **Errors** 400(파라미터 형식), 401 UNAUTHENTICATED, 403 FORBIDDEN, 503 DEPENDENCY_UNAVAILABLE(결제 조회 실패). 오류 본문은 `{ "success": false, "data": { "code" }, "message" }`
 
@@ -1228,6 +1266,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 ```
 
 > `generatedAt` 은 `LocalDateTime` 이라 `Z` 가 없다(서버 시각). 점수가 하나도 없으면 `{ "recommendations": [], "generatedAt": null }`. 점수는 관심사(카테고리 3.0 · 키워드 2.0) + 행동(조회 0.5 · 예약 확정 4.0 · 체크인 5.0, 30일 반감기)을 태그별로 합산하고, 박람회 태그와 겹치는 태그의 점수를 더한다. 공개 박람회만 후보이며, 이미 예약 확정한 박람회와 태그 없는 박람회는 빠진다.
+> 
 
 ---
 
@@ -1302,6 +1341,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 ```
 
 > id 만 준다. 제목·썸네일은 프론트가 `listExpos` 결과나 상세 호출로 채운다.
+> 
 
 ---
 
@@ -1346,6 +1386,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 ```
 
 > `reservationNo` 를 함께 저장하는 이유는 QR 을 쓸 수 없을 때 예약번호로 체크인해야 하기 때문이다.
+> 
 
 **Response 201**
 
@@ -1354,6 +1395,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 ```
 
 > 같은 `reservationId` 로 다시 부르면 기존 티켓을 돌려준다(멱등).
+> 
 
 ---
 
@@ -1368,6 +1410,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 | 실패 처리 | fail-open. 예약 취소는 되돌리지 않는다 |
 
 > 무효화가 USED 를 건너뛰므로, 취소 경로는 무효화 통지 **전에** `findTicket` 으로 입장 여부를 따로 확인한다. 그 확인은 fail-closed 다.
+> 
 
 ---
 
@@ -1439,6 +1482,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 ```
 
 > 상태로 거르지 않는다 — 지난 예약의 박람회는 HIDDEN·CLOSED 일 수 있다.
+> 
 
 ---
 
@@ -1447,6 +1491,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 캘린더 추천의 카테고리 조건과 정산의 카테고리별 매출용. 규칙은 `expoTitles` 와 같다. 응답 `[ { "expoId": 12, "category": "IT·전자" } ]`.
 
 > 캘린더 추천에서는 **fail-closed** 로 쓴다 — 조회 실패 시 카테고리 조건이 붙은 후보를 비운다.
+> 
 
 ---
 
@@ -1513,6 +1558,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 ```
 
 > 예약 가능한 회차가 하나도 없는 박람회는 응답에 담기지 않는다. 판정 근거가 없는 상태를 `false` 로 내리면 "무료" 라고 거짓말을 하게 된다.
+> 
 
 ---
 
@@ -1531,6 +1577,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 ```
 
 > 예약 가능한 회차의 가장 가까운 종료 시각 순. 회차가 없는 박람회는 뒤로 간다.
+> 
 
 ---
 
@@ -1547,6 +1594,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 **Response 200** — `[12, 15, 21]` (expoId 오름차순)
 
 > expo-service 가 10분마다 커서를 옮겨 가며 호출해 `PUBLISHED → CLOSED` 로 자동 마감한다. 커서가 전진하지 않으면 루프를 멈춘다. 실패 시 이번 주기를 건너뛴다.
+> 
 
 ---
 
@@ -1578,6 +1626,7 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 ```
 
 > 명단 응답은 개인정보를 담으므로 Log 에 본문을 남기지 않는다. DTO 의 `toString` 에서 이름·연락처를 제외한다.
+> 
 
 ---
 
@@ -1604,6 +1653,7 @@ Settlement-Service 가 결제 레코드를 **Pull** 해 집계한다. 실시간 
 ```
 
 > 두 응답 모두 `paidAt`·`cancelledAt` 을 준다. Settlement 는 `status`·`updatedAt` 이 아니라 이 두 시각으로 매출·환불을 기간에 배정한다.
+> 
 
 ---
 
@@ -1630,6 +1680,7 @@ Settlement-Service 가 결제 레코드를 **Pull** 해 집계한다. 실시간 
 `updateExpo` 로 제목·소개문이 바뀌면 커밋 뒤 비동기로 부른다. 본문은 4-a 와 같다.
 
 > 재태깅은 `category` 를 읽지 않는다. LLM 이 실패하면 분야와 무관하게 "기타" 태그가 된다(알려진 제한).
+> 
 
 ---
 
@@ -1697,7 +1748,7 @@ Settlement-Service 가 결제 레코드를 **Pull** 해 집계한다. 실시간 
 34. 오류 코드는 항상 `data.code` 다. 401 에는 `WWW-Authenticate: Bearer` 를 붙인다
 35. **PG 연동키(Secret)는 어떤 문서·저장소에도 평문으로 기록하지 않는다.** 환경변수와 gitignore 된 파일에만 둔다
 
-## 알려진 제한 (코드 그대로 기록)
+## 알려진 제한
 
 | # | 내용 | 위치 |
 | --- | --- | --- |
