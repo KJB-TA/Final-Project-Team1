@@ -11,6 +11,18 @@ export function checkinMethodOf(input: string): CheckinMethod {
   return RESERVATION_NO_PATTERN.test(input.trim().toUpperCase()) ? 'RESERVATION_NO' : 'QR'
 }
 
+export interface RoundCheckin {
+  roundId: number
+  /** 회차 번호(시작 순서). 예약 현황을 못 받아오면 null */
+  sequence: number | null
+  startsAt: string | null
+  reserved: number
+  checkedIn: number
+  noShow: number
+  checkinRate: number
+}
+
+/** 숫자는 모두 박람회 전체(모든 회차 합산)이고, 회차별 내역은 rounds 에 있다. */
 export interface CheckinReport {
   expoId: number
   expoTitle: string
@@ -19,7 +31,9 @@ export interface CheckinReport {
   checkedIn: number
   noShow: number
   checkinRate: number
-  hourly: { hour: number; count: number }[]
+  rounds: RoundCheckin[]
+  /** 날짜(YYYY-MM-DD, 한국 시간)·시간대별 입장. 다른 날의 같은 시간대는 따로 온다. */
+  hourly: { date: string; hour: number; count: number }[]
   byMethod: Record<string, number>
   reverted: number
   /** LLM 요약. 실패했거나 입장 기록이 없으면 null 이고 숫자만 보여준다. */

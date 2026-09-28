@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.mock.mockito.MockBean;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,6 +46,13 @@ class CheckinReportIntegrationTest extends IntegrationTestSupport {
     // 한국 시간 기준 14시·15시가 되도록 UTC 로 05:00, 06:00 을 쓴다.
     private static final Instant AT_14 = Instant.parse("2026-09-20T05:00:00Z");
     private static final Instant AT_15 = Instant.parse("2026-09-20T06:30:00Z");
+    // 다음 날 같은 14시(한국 시간). 날짜 없이 시간만 모으면 AT_14 와 합쳐진다.
+    private static final Instant NEXT_DAY_14 = Instant.parse("2026-09-21T05:10:00Z");
+    private static final LocalDate DAY_1 = LocalDate.of(2026, 9, 20);
+    private static final LocalDate DAY_2 = LocalDate.of(2026, 9, 21);
+
+    private static final long ROUND_1 = 45L;
+    private static final long ROUND_2 = 46L;
 
     @Autowired
     private TicketRepository ticketRepository;
@@ -69,7 +77,7 @@ class CheckinReportIntegrationTest extends IntegrationTestSupport {
         when(expoClient.getExpo(anyLong()))
                 .thenReturn(new ExpoSummary(EXPO_ID, OWNER_ID, "CLOSED", "2026 로봇 박람회"));
         when(reservationSummaryClient.findSummaries(EXPO_ID)).thenReturn(List.of(
-                new ReservationSummary(45L, 100, 30, 2, AT_14, AT_15)));
+                new ReservationSummary(ROUND_1, 100, 30, 2, AT_14, AT_15)));
         when(geminiClient.isAvailable()).thenReturn(true);
         when(geminiClient.generateJson(anyString(), anyString(), any()))
                 .thenReturn(new CheckinReportService.Summary("입장률이 높았습니다."));
@@ -77,7 +85,12 @@ class CheckinReportIntegrationTest extends IntegrationTestSupport {
 
     private Ticket checkedIn(long reservationId, int headcount, String token, Instant at,
                              CheckinMethod method) {
-        Ticket ticket = Ticket.issue(reservationId, "R-" + reservationId, EXPO_ID, 45L,
+        return checkedIn(reservationId, ROUND_1, headcount, token, at, method);
+    }
+
+    private Ticket checkedIn(long reservationId, long roundId, int headcount, String token, Instant at,
+                             CheckinMethod method) {
+        Ticket ticket = Ticket.issue(reservationId, "R-" + reservationId, EXPO_ID, roundId,
                 OWNER_ID, headcount, token, at);
         ticket.checkIn(at);
         Ticket saved = ticketRepository.save(ticket);
@@ -111,8 +124,8 @@ class CheckinReportIntegrationTest extends IntegrationTestSupport {
         CheckinReportResponse report = reportService.getReport(EXPO_ID, OWNER);
 
         assertThat(report.hourly())
-                .containsExactly(new CheckinReportResponse.HourlyCheckin(14, 2),
-                        new CheckinReportResponse.HourlyCheckin(15, 1));
+                .containsExactly(new CheckinReportResponse.HourlyCheckin(DAY_1, 14, 2),
+                        new CheckinReportResponse.HourlyCheckin(DAY_1, 15, 1));
     }
 
     @Test
@@ -141,7 +154,7 @@ class CheckinReportIntegrationTest extends IntegrationTestSupport {
         CheckinReportResponse report = reportService.getReport(EXPO_ID, OWNER);
 
         assertThat(report.reverted()).isEqualTo(1);
-        assertThat(report.hourly()).containsExactly(new CheckinReportResponse.HourlyCheckin(14, 1));
+        assertThat(report.hourly()).containsExactly(new CheckinReportResponse.HourlyCheckin(DAY_1, 14, 1));
     }
 
     @Test
@@ -192,6 +205,70 @@ class CheckinReportIntegrationTest extends IntegrationTestSupport {
         assertThat(report.checkedIn()).isEqualTo(4);
         assertThat(report.noShow()).isZero();
         assertThat(report.checkinRate()).isZero();
+    }
+
+    @Test
+    @DisplayName("회차별 예약 대비 입장을 시작 순서대로 번호를 붙여 낸다 - 전체는 합산")
+    void breaksDownByRound() {
+        twoRounds();
+        checkedIn(1L, ROUND_1, 16, "t1", AT_14, CheckinMethod.QR);
+        checkedIn(2L, ROUND_2, 3, "t2", NEXT_DAY_14, CheckinMethod.QR);
+
+        CheckinReportResponse report = reportService.getReport(EXPO_ID, OWNER);
+
+        assertThat(report.reserved()).isEqualTo(30);
+        assertThat(report.checkedIn()).isEqualTo(19);
+        assertThat(report.rounds()).containsExactly(
+                new CheckinReportResponse.RoundCheckin(ROUND_1, 1, AT_14, 20, 16, 4, 80),
+                new CheckinReportResponse.RoundCheckin(ROUND_2, 2, NEXT_DAY_14, 10, 3, 7, 30));
+    }
+
+    @Test
+    @DisplayName("다른 날의 같은 시간대는 합치지 않는다")
+    void keepsSameHourOnDifferentDaysApart() {
+        checkedIn(1L, 1, "t1", AT_14, CheckinMethod.QR);
+        checkedIn(2L, 1, "t2", NEXT_DAY_14, CheckinMethod.QR);
+
+        CheckinReportResponse report = reportService.getReport(EXPO_ID, OWNER);
+
+        assertThat(report.hourly()).containsExactly(
+                new CheckinReportResponse.HourlyCheckin(DAY_1, 14, 1),
+                new CheckinReportResponse.HourlyCheckin(DAY_2, 14, 1));
+    }
+
+    @Test
+    @DisplayName("프롬프트에 전체 합산임을 밝히고 회차별 수치를 넘긴다")
+    void passesRoundBreakdownToPrompt() {
+        twoRounds();
+        checkedIn(1L, ROUND_1, 16, "t1", AT_14, CheckinMethod.QR);
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+
+        reportService.getReport(EXPO_ID, OWNER);
+
+        org.mockito.Mockito.verify(geminiClient).generateJson(anyString(), prompt.capture(), any());
+        assertThat(prompt.getValue())
+                .contains("모든 회차 합산")
+                .contains("1회차(9/20 14시): 예약 20명, 입장 16명, 입장률 80%")
+                .contains("2회차(9/21 14시): 예약 10명, 입장 0명, 입장률 0%")
+                .contains("9/20 14시 1명");
+    }
+
+    @Test
+    @DisplayName("예약 현황을 못 받아오면 입장 기록이 있는 회차만 번호 없이 낸다")
+    void listsCheckedInRoundsWithoutSequenceWhenReservationsMissing() {
+        when(reservationSummaryClient.findSummaries(EXPO_ID)).thenReturn(List.of());
+        checkedIn(1L, ROUND_2, 2, "t1", AT_14, CheckinMethod.QR);
+
+        CheckinReportResponse report = reportService.getReport(EXPO_ID, OWNER);
+
+        assertThat(report.rounds()).containsExactly(
+                new CheckinReportResponse.RoundCheckin(ROUND_2, null, null, 0, 2, 0, 0));
+    }
+
+    private void twoRounds() {
+        when(reservationSummaryClient.findSummaries(EXPO_ID)).thenReturn(List.of(
+                new ReservationSummary(ROUND_1, 100, 20, 0, AT_14, AT_15),
+                new ReservationSummary(ROUND_2, 100, 10, 0, NEXT_DAY_14, NEXT_DAY_14.plusSeconds(3600))));
     }
 
     @Test
