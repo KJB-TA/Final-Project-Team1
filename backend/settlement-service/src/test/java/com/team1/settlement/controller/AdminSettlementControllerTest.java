@@ -86,11 +86,13 @@ class AdminSettlementControllerTest {
     }
 
     @Test
-    @DisplayName("로그인 안 했으면 401")
+    @DisplayName("로그인 안 했으면 401 UNAUTHENTICATED - 프론트가 로그인 화면으로 보내는 형식이어야 한다")
     void unauthenticatedIsRejected() throws Exception {
         mockMvc.perform(get("/api/v1/admin/settlement")
                         .param("period", "MONTH").param("date", "2026-09-15"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value("UNAUTHENTICATED"));
     }
 
     @Test
@@ -100,6 +102,7 @@ class AdminSettlementControllerTest {
 
         mockMvc.perform(get("/api/v1/admin/settlement")
                         .param("period", "MONTH").param("date", "2026-09-15"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.data.code").value("FORBIDDEN"));
     }
 }

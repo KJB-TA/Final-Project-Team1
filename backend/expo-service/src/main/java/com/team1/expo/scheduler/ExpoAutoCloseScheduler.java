@@ -58,7 +58,14 @@ public class ExpoAutoCloseScheduler {
             if (expoIds.size() < limit) {
                 break;
             }
-            afterExpoId = expoIds.get(expoIds.size() - 1);
+            // 커서를 모르는 옛 reservation-service 와 섞여 배포되면 같은 페이지가 계속 돌아온다.
+            // 전진하지 않으면 멈춘다 - 안 멈추면 스케줄러 스레드를 붙잡아 배너 만료·환불 재시도까지 멈춘다.
+            long last = expoIds.get(expoIds.size() - 1);
+            if (last <= afterExpoId) {
+                log.warn("[AutoClose] 커서가 전진하지 않아 중단 afterExpoId={} last={}", afterExpoId, last);
+                break;
+            }
+            afterExpoId = last;
         }
 
         if (scanned > 0) {
