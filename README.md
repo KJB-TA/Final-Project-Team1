@@ -149,8 +149,8 @@ cd backend
 
 ## CI/CD
 
-1. CI: `main`·`dev` 대상 PR 과 push 에서 백엔드 `./gradlew build`(테스트 포함), 프론트 `npm run lint`·`npm run build` 실행
-2. CD: 수동 실행(Actions → CD → Run workflow, `dev`·`main` 만). 서비스별 이미지와 web 이미지를 ghcr.io 에 push 한 뒤, EC2 에 SSH 로 접속해 `docker compose pull`과 `up -d` 실행
+1. CI: `main` 대상 PR 과 push 에서 백엔드 `./gradlew build`(테스트 포함), 프론트 `npm run lint`·`npm run build` 실행
+2. CD: 수동 실행(Actions → CD → Run workflow, `main` 만). 서비스별 이미지와 web 이미지를 ghcr.io 에 push 한 뒤, EC2 에 SSH 로 접속해 `docker compose pull`과 `up -d` 실행
 
 ## 문서
 
@@ -160,7 +160,7 @@ cd backend
 | [화면설계](docs/화면설계.md) | 화면 구성 |
 | [서비스 경계](docs/서비스경계.md) | 서비스별 책임과 데이터 소유 |
 | [아키텍처](docs/아키텍처.md) | 시스템 구성 |
-| [ERD](docs/ERD.md) | 데이터 모델, Migration 소유 |
+| [ERD](docs/ERD정의서.md) | 데이터 모델, Migration 소유 |
 | [API](docs/API.md) | HTTP와 내부 API 계약 |
 | [권한 Matrix](docs/권한매트릭스.md) | 역할별 접근 권한 |
 | [시퀀스](docs/시퀀스.md) | 주요 흐름 |
