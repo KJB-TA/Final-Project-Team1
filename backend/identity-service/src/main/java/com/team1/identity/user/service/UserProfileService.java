@@ -72,6 +72,7 @@ public class UserProfileService {
 
     private MyProfileResponse toResponse(User user) {
         return new MyProfileResponse(
-                user.getId(), user.getEmail(), user.getName(), user.primaryRole().name(), user.getProfileImageUrl());
+                user.getId(), user.getEmail(), user.getName(), user.primaryRole().name(), user.getProfileImageUrl(),
+                user.getPasswordHash() != null);
     }
 }

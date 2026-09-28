@@ -7,6 +7,8 @@ export interface MyProfileResponse {
   name: string
   role: string
   profileImageUrl: string | null
+  // 소셜 가입 회원은 false - 비밀번호 변경 카드를 숨긴다
+  hasPassword: boolean
 }
 
 export interface NameAvailabilityResponse {
