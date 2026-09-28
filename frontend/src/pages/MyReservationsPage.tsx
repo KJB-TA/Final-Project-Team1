@@ -30,6 +30,17 @@ const REFUND_LABEL: Record<string, string> = {
   NOT_REFUNDABLE: '환불 기한 경과(환불 불가)',
 }
 
+/** 환불 창. 서버의 reservation.cancellation.refund-window(1d) 와 같은 값이어야 한다. */
+const REFUND_WINDOW_MS = 24 * 60 * 60 * 1000
+
+// 취소는 기한 안이면 늘 성공하므로, 돈이 돌아갔는지는 응답의 refundState 로만 알 수 있다.
+const CANCEL_TOAST: Record<string, string> = {
+  REFUNDED: '예약이 취소되고 환불되었습니다',
+  REFUND_PENDING: '예약이 취소되었습니다. 환불은 처리 중입니다',
+  REFUND_UNRESOLVED: '예약이 취소되었으나 환불이 지연되고 있습니다. 문의해주세요',
+  NOT_REFUNDABLE: '예약이 취소되었습니다 (환불 기한이 지나 환불되지 않습니다)',
+}
+
 const CANCEL_ERROR_MESSAGES: Record<string, string> = {
   CANCELLATION_DEADLINE_PASSED: '회차가 이미 시작되어 취소할 수 없습니다.',
   ALREADY_CHECKED_IN: '이미 현장 입장이 완료된 예약은 취소할 수 없습니다.',
@@ -69,7 +80,7 @@ export default function MyReservationsPage() {
     setReservations(prev => prev.map(r =>
       r.reservationId === reservationId ? { ...r, status: status as MyReservation['status'], refundState: refundState as MyReservation['refundState'] } : r
     ))
-    toast('예약이 취소되었습니다', 'success')
+    toast(CANCEL_TOAST[refundState] ?? '예약이 취소되었습니다', 'success')
   }
 
   return (
@@ -152,6 +163,7 @@ function ReservationDetailModal({ reservationId, onClose, onCancelled }: {
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
+  const [noRefund, setNoRefund] = useState(false)
 
   useEffect(() => {
     reservationApi.getMine(reservationId)
@@ -176,6 +188,14 @@ function ReservationDetailModal({ reservationId, onClose, onCancelled }: {
   }
 
   const cancellable = detail?.status === 'PENDING' || detail?.status === 'CONFIRMED'
+
+  // 결제 대기(PENDING)는 받은 돈이 없어 기한과 무관하게 돌려주므로, 확정된 유료 예약만 경고한다.
+  // 시각은 취소 버튼을 누른 순간 기준이다.
+  const startCancel = () => {
+    setNoRefund(detail?.status === 'CONFIRMED' && detail.amount > 0 && !!detail.startsAt
+      && new Date(detail.startsAt).getTime() - Date.now() < REFUND_WINDOW_MS)
+    setConfirmingCancel(true)
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -246,7 +266,16 @@ function ReservationDetailModal({ reservationId, onClose, onCancelled }: {
 
             {confirmingCancel ? (
               <div className="alert alert-warning" style={{ marginBottom: 4 }}>
-                정말 예약을 취소하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+                {/* .alert 는 flex 라 자식이 가로로 갈린다. 한 덩어리로 묶어 세로로 쌓는다. */}
+                <div style={{ wordBreak: 'keep-all' }}>
+                  {noRefund && (
+                    <>
+                      <p style={{ fontWeight: 700 }}>지금 취소하면 환불되지 않습니다.</p>
+                      <p style={{ marginBottom: 8 }}>환불은 회차 시작 24시간 전까지 취소한 경우에만 됩니다.</p>
+                    </>
+                  )}
+                  <p>정말 예약을 취소하시겠습니까? 이 작업은 되돌릴 수 없습니다.</p>
+                </div>
               </div>
             ) : null}
 
@@ -264,7 +293,7 @@ function ReservationDetailModal({ reservationId, onClose, onCancelled }: {
                 <>
                   <button className="btn btn-secondary" onClick={onClose}>닫기</button>
                   {cancellable && (
-                    <button className="btn btn-danger" onClick={() => setConfirmingCancel(true)}>
+                    <button className="btn btn-danger" onClick={startCancel}>
                       예약 취소
                     </button>
                   )}
