@@ -24,12 +24,15 @@ public class KakaoApiClient {
     private static final String KAKAO_TOKEN_URL = "https://kauth.kakao.com/oauth/token";
     private static final String KAKAO_USER_INFO_URL = "https://kapi.kakao.com/v2/user/me";
 
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient;
     private final String restApiKey;
     private final String clientSecret;
 
-    public KakaoApiClient(@Value("${kakao.rest-api-key:}") String restApiKey,
+    // Builder 는 spring.http.client.* 의 연결·응답 타임아웃이 적용된 것을 받는다. 없으면 무한 대기다.
+    public KakaoApiClient(RestClient.Builder restClientBuilder,
+                          @Value("${kakao.rest-api-key:}") String restApiKey,
                           @Value("${kakao.client-secret:}") String clientSecret) {
+        this.restClient = restClientBuilder.build();
         this.restApiKey = restApiKey;
         this.clientSecret = clientSecret;
     }

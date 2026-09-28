@@ -38,6 +38,18 @@ export async function requestNaverAuthCode(): Promise<NaverAuthResult> {
       reject(new Error('네이버 인증이 취소되었습니다.'))
     }, 120000)
 
+    // 사용자가 팝업을 X 로 닫으면 message 가 오지 않아 120초를 다 기다리게 된다. 닫힘을 감지해 바로 취소한다.
+    // 콜백 페이지가 code 를 보내고 스스로 닫는 경우 message 가 조금 늦게 올 수 있어, 잠깐 기다린 뒤 판단한다.
+    let closedCheck: number | undefined
+    const closedPoll = window.setInterval(() => {
+      if (!popup.closed) return
+      window.clearInterval(closedPoll)
+      closedCheck = window.setTimeout(() => {
+        cleanup()
+        reject(new Error('네이버 인증이 취소되었습니다.'))
+      }, 500)
+    }, 500)
+
     function onMessage(e: MessageEvent) {
       if (e.origin !== window.location.origin) return
       const data = e.data as { type?: string; code?: string; state?: string; error?: string }
@@ -51,6 +63,8 @@ export async function requestNaverAuthCode(): Promise<NaverAuthResult> {
 
     function cleanup() {
       window.clearTimeout(timer)
+      window.clearInterval(closedPoll)
+      window.clearTimeout(closedCheck)
       window.removeEventListener('message', onMessage)
       try {
         popup?.close()

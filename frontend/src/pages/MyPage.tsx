@@ -14,6 +14,15 @@ export default function MyPage() {
   const { user, login, isRole } = useAuth()
   const navigate = useNavigate()
   const toast = useToast()
+  // 소셜 가입 회원은 비밀번호가 없어 변경 카드가 의미 없다. 모르는 동안(null)은 보여준다.
+  const [hasPassword, setHasPassword] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    if (!user) return
+    userApi.getMe()
+      .then(res => setHasPassword(res.data.hasPassword))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!user) {
@@ -36,7 +45,7 @@ export default function MyPage() {
             <ProfileImageCard />
             <ProfileCard />
             <ChangeNameCard onChanged={name => login({ ...user, name })} />
-            <ChangePasswordCard />
+            {hasPassword !== false && <ChangePasswordCard />}
             {isRole('USER') && <InterestsCard />}
             {isRole('USER') && <OrganizerRequestCard />}
           </div>

@@ -1,15 +1,28 @@
 package com.team1.identity.user;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.team1.identity.auth.jwt.JwtTokenProvider;
 import com.team1.identity.support.ApiTestSupport;
+import com.team1.identity.user.entity.Role;
+import com.team1.identity.user.entity.User;
+import com.team1.identity.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class UserProfileApiTest extends ApiTestSupport {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private JwtTokenProvider jwtTokenProvider;
 
     @Test
     @DisplayName("인증 없이 내 프로필을 조회하면 401이다")
@@ -35,6 +48,7 @@ class UserProfileApiTest extends ApiTestSupport {
         assertThat(response.getBody().path("data").path("email").asText()).isEqualTo(email);
         assertThat(response.getBody().path("data").path("name").asText()).isEqualTo("테스터");
         assertThat(response.getBody().path("data").path("role").asText()).isEqualTo("USER");
+        assertThat(response.getBody().path("data").path("hasPassword").asBoolean()).isTrue();
     }
 
     @Test
@@ -152,5 +166,17 @@ class UserProfileApiTest extends ApiTestSupport {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(loginAndGetToken(email, "newpassword1")).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("소셜 가입 회원은 hasPassword 가 false 다 - 화면이 비밀번호 변경을 숨긴다")
+    void 소셜_회원은_비밀번호가_없다() {
+        User user = userRepository.save(User.createOauth(uniqueEmail(), "소셜회원", Role.USER, LocalDateTime.now()));
+        String token = jwtTokenProvider.issue(user.getId(), user.primaryRole()).accessToken();
+
+        ResponseEntity<JsonNode> response = get("/api/v1/users/me", token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().path("data").path("hasPassword").asBoolean()).isFalse();
     }
 }
