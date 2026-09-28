@@ -64,7 +64,7 @@ function ProfileImageCard() {
   useEffect(() => {
     if (!user) return
     userApi.getMe()
-      .then(res => login({ ...user, name: res.data.name, profileImageUrl: res.data.profileImageUrl }))
+      .then(res => login({ ...user, name: res.data.nickname, profileImageUrl: res.data.profileImageUrl }))
       .catch(() => {})
   }, [])
 
@@ -121,11 +121,15 @@ function ProfileImageCard() {
 function ProfileCard() {
   const toast = useToast()
   const [email, setEmail] = useState('')
+  const [realName, setRealName] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     userApi.getMe()
-      .then(res => setEmail(res.data.email))
+      .then(res => {
+        setEmail(res.data.email)
+        setRealName(res.data.name)
+      })
       .catch(() => toast('내 정보를 불러오지 못했습니다', 'error'))
       .finally(() => setLoading(false))
   }, [])
@@ -135,6 +139,10 @@ function ProfileCard() {
       <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 16 }}>
         기본 정보
       </h2>
+      <div className="form-group">
+        <label className="form-label">이름</label>
+        <input className="form-input" type="text" value={loading ? '불러오는 중...' : realName} disabled />
+      </div>
       <div className="form-group" style={{ marginBottom: 0 }}>
         <label className="form-label">이메일</label>
         <input className="form-input" type="email" value={loading ? '불러오는 중...' : email} disabled />
@@ -158,7 +166,7 @@ function ChangeNameCard({ onChanged }: { onChanged: (name: string) => void }) {
   async function handleCheck() {
     setChecking(true)
     try {
-      const res = await userApi.checkNameAvailability(name)
+      const res = await userApi.checkNicknameAvailability(name)
       setCheckResult(res.data.available ? 'available' : 'taken')
     } catch {
       toast('중복 확인에 실패했습니다', 'error')
@@ -171,8 +179,8 @@ function ChangeNameCard({ onChanged }: { onChanged: (name: string) => void }) {
     e.preventDefault()
     setLoading(true)
     try {
-      const res = await userApi.changeName(name)
-      onChanged(res.data.name)
+      const res = await userApi.changeNickname(name)
+      onChanged(res.data.nickname)
       toast('닉네임이 변경되었습니다 ✓', 'success')
       setName('')
       setCheckResult(null)

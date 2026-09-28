@@ -83,7 +83,8 @@ export default function AuthPage() {
       let profileImageUrl: string | null = null
       try {
         const me = await userApi.getMe()
-        name = me.data.name
+        // 화면에는 실명이 아니라 닉네임을 보여준다. AuthUser.name 은 "표시 이름" 이다.
+        name = me.data.nickname
         profileImageUrl = me.data.profileImageUrl
       } catch {
         // 프로필 조회가 실패해도 로그인 자체는 성립한다.

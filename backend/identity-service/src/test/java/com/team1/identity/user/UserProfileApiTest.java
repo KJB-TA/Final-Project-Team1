@@ -52,7 +52,7 @@ class UserProfileApiTest extends ApiTestSupport {
     }
 
     @Test
-    @DisplayName("닉네임을 변경하면 이후 조회에도 반영된다")
+    @DisplayName("닉네임을 변경하면 이후 조회에도 반영되고, 실명(name)은 그대로다")
     void 닉네임_변경() {
         String email = uniqueEmail();
         post("/api/v1/auth/signup", """
@@ -60,14 +60,35 @@ class UserProfileApiTest extends ApiTestSupport {
                 """.formatted(email));
         String token = loginAndGetToken(email, "password123");
 
-        ResponseEntity<JsonNode> response = patch("/api/v1/users/me/name", """
-                {"name":"새이름"}
+        ResponseEntity<JsonNode> response = patch("/api/v1/users/me/nickname", """
+                {"nickname":"새닉네임"}
                 """, token);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody().path("data").path("name").asText()).isEqualTo("새이름");
-        assertThat(get("/api/v1/users/me", token).getBody().path("data").path("name").asText())
-                .isEqualTo("새이름");
+        assertThat(response.getBody().path("data").path("nickname").asText()).isEqualTo("새닉네임");
+        JsonNode me = get("/api/v1/users/me", token).getBody().path("data");
+        assertThat(me.path("nickname").asText()).isEqualTo("새닉네임");
+        assertThat(me.path("name").asText()).isEqualTo("테스터");
+    }
+
+    @Test
+    @DisplayName("실명이 같은 회원도 가입할 수 있고, 닉네임은 서로 다르게 정해진다")
+    void 같은_실명_가입() {
+        String firstEmail = uniqueEmail();
+        String secondEmail = uniqueEmail();
+        post("/api/v1/auth/signup", """
+                {"email":"%s","password":"password123","name":"동명이인"}
+                """.formatted(firstEmail));
+        ResponseEntity<JsonNode> second = post("/api/v1/auth/signup", """
+                {"email":"%s","password":"password123","name":"동명이인"}
+                """.formatted(secondEmail));
+
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        JsonNode firstMe = get("/api/v1/users/me", loginAndGetToken(firstEmail, "password123")).getBody().path("data");
+        JsonNode secondMe = get("/api/v1/users/me", loginAndGetToken(secondEmail, "password123")).getBody().path("data");
+        assertThat(firstMe.path("name").asText()).isEqualTo(secondMe.path("name").asText());
+        assertThat(firstMe.path("nickname").asText()).isEqualTo("동명이인");
+        assertThat(secondMe.path("nickname").asText()).startsWith("동명이인#").isNotEqualTo("동명이인");
     }
 
     @Test
@@ -99,7 +120,7 @@ class UserProfileApiTest extends ApiTestSupport {
                 """.formatted(email));
         String token = loginAndGetToken(email, "password123");
 
-        ResponseEntity<JsonNode> response = get("/api/v1/users/me/name-availability?name=아무도안쓰는닉네임", token);
+        ResponseEntity<JsonNode> response = get("/api/v1/users/me/nickname-availability?nickname=아무도안쓰는닉네임", token);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody().path("data").path("available").asBoolean()).isTrue();
@@ -120,15 +141,15 @@ class UserProfileApiTest extends ApiTestSupport {
         String otherToken = loginAndGetToken(otherEmail, "password123");
 
         ResponseEntity<JsonNode> checkResponse =
-                get("/api/v1/users/me/name-availability?name=겹치는닉네임", otherToken);
+                get("/api/v1/users/me/nickname-availability?nickname=겹치는닉네임", otherToken);
         assertThat(checkResponse.getBody().path("data").path("available").asBoolean()).isFalse();
 
-        ResponseEntity<JsonNode> changeResponse = patch("/api/v1/users/me/name", """
-                {"name":"겹치는닉네임"}
+        ResponseEntity<JsonNode> changeResponse = patch("/api/v1/users/me/nickname", """
+                {"nickname":"겹치는닉네임"}
                 """, otherToken);
 
         assertThat(changeResponse.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(errorCode(changeResponse)).isEqualTo("DUPLICATE_NAME");
+        assertThat(errorCode(changeResponse)).isEqualTo("DUPLICATE_NICKNAME");
     }
 
     @Test
@@ -171,7 +192,7 @@ class UserProfileApiTest extends ApiTestSupport {
     @Test
     @DisplayName("소셜 가입 회원은 hasPassword 가 false 다 - 화면이 비밀번호 변경을 숨긴다")
     void 소셜_회원은_비밀번호가_없다() {
-        User user = userRepository.save(User.createOauth(uniqueEmail(), "소셜회원", Role.USER, LocalDateTime.now()));
+        User user = userRepository.save(User.createOauth(uniqueEmail(), "소셜회원", "소셜" + uniqueEmail(), Role.USER, LocalDateTime.now()));
         String token = jwtTokenProvider.issue(user.getId(), user.primaryRole()).accessToken();
 
         ResponseEntity<JsonNode> response = get("/api/v1/users/me", token);

@@ -17,6 +17,7 @@ import com.team1.identity.common.util.EmailNormalizer;
 import com.team1.identity.user.entity.Role;
 import com.team1.identity.user.entity.User;
 import com.team1.identity.user.repository.UserRepository;
+import com.team1.identity.user.service.NicknameGenerator;
 import com.team1.identity.user.service.UserRegistrationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -53,6 +54,7 @@ public class AuthService {
     private final OauthAccountRepository oauthAccountRepository;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
+    private final NicknameGenerator nicknameGenerator;
 
     public SignUpResponse signUp(SignUpRequest request) {
         User user = userRegistrationService.register(
@@ -169,8 +171,11 @@ public class AuthService {
         LocalDateTime now = LocalDateTime.now(clock);
 
         User user = userRepository.findByEmail(email)
-                .orElseGet(() -> userRepository.save(
-                        User.createOauth(email, resolveName(name, email), Role.USER, now)));
+                .orElseGet(() -> {
+                    String realName = resolveName(name, email);
+                    return userRepository.save(User.createOauth(
+                            email, realName, nicknameGenerator.initialNickname(realName), Role.USER, now));
+                });
 
         oauthAccountRepository.save(OauthAccount.of(user, provider, providerId, now));
         return user;

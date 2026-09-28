@@ -1,11 +1,11 @@
 package com.team1.identity.user.controller;
 
 import com.team1.identity.common.response.ApiResponse;
-import com.team1.identity.user.dto.ChangeNameRequest;
+import com.team1.identity.user.dto.ChangeNicknameRequest;
 import com.team1.identity.user.dto.ChangePasswordRequest;
 import com.team1.identity.user.dto.ChangeProfileImageRequest;
 import com.team1.identity.user.dto.MyProfileResponse;
-import com.team1.identity.user.dto.NameAvailabilityResponse;
+import com.team1.identity.user.dto.NicknameAvailabilityResponse;
 import com.team1.identity.user.service.UserProfileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -42,9 +42,9 @@ public class UserController {
     }
 
     @Operation(summary = "닉네임 중복 확인")
-    @GetMapping("/me/name-availability")
-    public ApiResponse<NameAvailabilityResponse> checkNameAvailability(@RequestParam String name) {
-        return ApiResponse.ok(new NameAvailabilityResponse(userProfileService.isNameAvailable(name)));
+    @GetMapping("/me/nickname-availability")
+    public ApiResponse<NicknameAvailabilityResponse> checkNicknameAvailability(@RequestParam String nickname) {
+        return ApiResponse.ok(new NicknameAvailabilityResponse(userProfileService.isNicknameAvailable(nickname)));
     }
 
     @Operation(summary = "프로필 이미지 변경")
@@ -60,11 +60,13 @@ public class UserController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400", description = "INVALID_REQUEST — 형식 위반"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "401", description = "UNAUTHENTICATED — Token 없음·만료·서명 오류")
+                    responseCode = "401", description = "UNAUTHENTICATED — Token 없음·만료·서명 오류"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "409", description = "DUPLICATE_NICKNAME — 다른 회원이 쓰는 닉네임")
     })
-    @PatchMapping("/me/name")
-    public ApiResponse<MyProfileResponse> changeName(@Valid @RequestBody ChangeNameRequest request) {
-        return ApiResponse.ok(userProfileService.changeName(request));
+    @PatchMapping("/me/nickname")
+    public ApiResponse<MyProfileResponse> changeNickname(@Valid @RequestBody ChangeNicknameRequest request) {
+        return ApiResponse.ok(userProfileService.changeNickname(request));
     }
 
     @Operation(
