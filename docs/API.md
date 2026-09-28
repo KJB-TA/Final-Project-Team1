@@ -1151,7 +1151,11 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
   "checkedIn": 42,
   "noShow": 71,
   "checkinRate": 37,
-  "hourly": [ { "hour": 9, "count": 12 } ],
+  "rounds": [
+    { "roundId": 31, "sequence": 1, "startsAt": "2026-10-01T01:00:00Z", "reserved": 60, "checkedIn": 30, "noShow": 30, "checkinRate": 50 },
+    { "roundId": 32, "sequence": 2, "startsAt": "2026-10-02T01:00:00Z", "reserved": 53, "checkedIn": 12, "noShow": 41, "checkinRate": 23 }
+  ],
+  "hourly": [ { "date": "2026-10-01", "hour": 10, "count": 12 } ],
   "byMethod": { "QR": 30, "RESERVATION_NO": 10, "UNKNOWN": 2 },
   "reverted": 1,
   "summary": "예약 113명 중 42명이 입장했습니다. …"
@@ -1160,8 +1164,9 @@ PortOne 이 부른다. 헤더·응답 규칙은 `promotionWebhook` 과 같다. �
 
 | 필드 | 설명 |
 | --- | --- |
-| reserved · checkedIn · noShow | 인원(headcount 합). 확정 예약 기준. `checkinRate` 는 0~100 정수 % |
-| hourly · byMethod · reverted | 처리 **건수**(되돌린 것 포함). `hour` 는 KST 0~23. 인원 단위와 섞여 있다(알려진 제한) |
+| reserved · checkedIn · noShow | 박람회 전체(모든 회차 합산) 인원(headcount 합). 확정 예약 기준. `checkinRate` 는 0~100 정수 % |
+| rounds | 회차별 예약·입장 인원. 필드 의미는 위 전체 값과 같다. 예약-Service 가 주는 회차 시작 순서이며 `sequence` 는 1부터. 예약 현황을 못 받아오면 입장 기록이 있는 회차만 roundId 순으로 오고, 이때 `sequence`·`startsAt` 은 null, `reserved`·`noShow`·`checkinRate` 는 0 |
+| hourly · byMethod · reverted | 처리 **건수**(되돌린 것 포함). `hourly` 는 KST 날짜(`date`, yyyy-MM-dd)·시(`hour`, 0~23)별로 나눠 센다 — 여러 날에 걸친 회차의 같은 시간대가 합쳐지지 않는다. 입장이 없는 시간대는 빠진다. 인원 단위와 섞여 있다(알려진 제한) |
 | summary | Gemini 요약. 키가 없거나 실패하면 null 이고 숫자는 정상이다(fail-open) |
 
 **Errors** 403 FORBIDDEN(역할·타인의 박람회), 503 DEPENDENCY_UNAVAILABLE(소유권·예약 집계 조회 실패)
