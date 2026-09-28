@@ -114,6 +114,29 @@ class ExpoAutoCloseSchedulerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("커서를 무시하고 같은 페이지만 돌아와도 무한 루프에 빠지지 않는다 - 옛 reservation-service 와 섞인 배포")
+    void 커서가_전진하지_않으면_중단() {
+        Channel channel = channelRepository.save(Channel.create(uniqueName(), uniqueUserId(), "desc"));
+        Expo first = expoRepository.save(publishedExpo(channel.getId()));
+        Expo second = expoRepository.save(publishedExpo(channel.getId()));
+
+        ExpoAutoCloseScheduler target = AopTestUtils.getTargetObject(scheduler);
+        Object originalLimit = ReflectionTestUtils.getField(target, "limit");
+        ReflectionTestUtils.setField(target, "limit", 2);
+        try {
+            when(roundClient.finishedExpoIds(any(Instant.class), anyLong(), anyInt()))
+                    .thenReturn(List.of(first.getId(), second.getId()));
+
+            org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10),
+                    () -> scheduler.closeFinishedExpos());
+        } finally {
+            ReflectionTestUtils.setField(target, "limit", originalLimit);
+        }
+
+        assertThat(expoRepository.findById(second.getId()).orElseThrow().getStatus()).isEqualTo(ExpoStatus.CLOSED);
+    }
+
+    @Test
     @DisplayName("finishedExpoIds 호출 실패 시 스케줄러가 예외를 던지지 않고 건너뛴다")
     void 호출_실패_시_건너뜀() {
         when(roundClient.finishedExpoIds(any(Instant.class), anyLong(), anyInt()))
