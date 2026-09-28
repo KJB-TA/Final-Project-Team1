@@ -36,8 +36,13 @@ public class User {
     @Column(name = "password_hash", length = 60)
     private String passwordHash;
 
+    // 실명. 겹쳐도 되고 가입 뒤에는 바꾸지 않는다. 주최자 신청 심사처럼 실명이 필요한 곳에서 쓴다.
     @Column(nullable = false, length = 100)
     private String name;
+
+    // 화면에 보이는 이름. 유일하다(V8 uk_users_nickname). 가입 때 이름으로 시작해 마이페이지에서 바꾼다.
+    @Column(nullable = false, unique = true, length = 100)
+    private String nickname;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
@@ -49,24 +54,26 @@ public class User {
     @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
     private Set<GrantedRole> roles = new LinkedHashSet<>();
 
-    private User(String email, String passwordHash, String name, Role role, LocalDateTime now) {
+    private User(String email, String passwordHash, String name, String nickname, Role role, LocalDateTime now) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.name = name;
+        this.nickname = nickname;
         this.createdAt = now;
         this.roles.add(new GrantedRole(role, now));
     }
 
-    public static User create(String email, String passwordHash, String name, Role role, LocalDateTime now) {
-        return new User(email, passwordHash, name, role, now);
+    public static User create(String email, String passwordHash, String name, String nickname, Role role,
+                              LocalDateTime now) {
+        return new User(email, passwordHash, name, nickname, role, now);
     }
 
     /*
      * 소셜 로그인 최초 진입 시 만드는 사용자다. 비밀번호가 없어 password_hash 는 null 이며,
      * 이 계정으로는 이메일/비밀번호 로그인을 할 수 없다(BCrypt 비교가 항상 실패).
      */
-    public static User createOauth(String email, String name, Role role, LocalDateTime now) {
-        return new User(email, null, name, role, now);
+    public static User createOauth(String email, String name, String nickname, Role role, LocalDateTime now) {
+        return new User(email, null, name, nickname, role, now);
     }
 
     /*
@@ -83,8 +90,8 @@ public class User {
         return "User[id=" + id + ", email=" + email + ", name=" + name + "]";
     }
 
-    public void changeName(String name) {
-        this.name = name;
+    public void changeNickname(String nickname) {
+        this.nickname = nickname;
     }
 
     public void changePassword(String passwordHash) {

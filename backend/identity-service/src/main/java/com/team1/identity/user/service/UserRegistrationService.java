@@ -32,6 +32,7 @@ public class UserRegistrationService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final NicknameGenerator nicknameGenerator;
     private final Clock clock;
 
     @Transactional
@@ -45,6 +46,7 @@ public class UserRegistrationService {
                 normalizedEmail,
                 passwordEncoder.encode(rawPassword),
                 name,
+                nicknameGenerator.initialNickname(name),
                 role,
                 LocalDateTime.now(clock)
         );
