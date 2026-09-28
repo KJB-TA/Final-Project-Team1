@@ -41,8 +41,9 @@ public class PreferenceService {
         repository.deleteAllByUserId(userId);
 
         LocalDateTime now = LocalDateTime.now();
-        List<String> categories = request.categories() == null ? List.of() : request.categories();
-        List<String> keywords = request.keywords() == null ? List.of() : request.keywords();
+        // 한 요청 안의 중복도 UNIQUE(user_id, type, value) 에 걸리므로 미리 걸러낸다.
+        List<String> categories = normalize(request.categories());
+        List<String> keywords = normalize(request.keywords());
 
         categories.forEach(c ->
                 repository.save(UserPreference.of(userId, PreferenceType.CATEGORY, c, now)));
@@ -52,5 +53,14 @@ public class PreferenceService {
         preferenceScoreService.applyInterests(userId, categories, keywords);
 
         return new PreferencesResponse(categories, keywords);
+    }
+
+    private static List<String> normalize(List<String> values) {
+        if (values == null) return List.of();
+        return values.stream()
+                .filter(v -> v != null && !v.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
     }
 }
