@@ -29,9 +29,10 @@ public final class RegexConstraintParser {
         return new ScheduleConstraint(toHour24(period,hour), null);
     }
 
+    // 오전 12시는 자정(0시), 오후 12시는 정오(12시)다. 나머지 오후는 12를 더한다.
     private static int toHour24(String period,int hour){
         if ("오후".equals(period)){
-
+            return hour == 12 ? 12 : hour + 12;
         }
         return hour == 12 ? 0 : hour;
     }
