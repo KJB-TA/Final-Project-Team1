@@ -16,7 +16,11 @@ import com.team1.security.JwtValidator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,6 +43,9 @@ class KakaoLoginServiceTest extends IntegrationTestSupport {
 
     @MockBean
     private KakaoApiClient kakaoApiClient;
+
+    @Autowired
+    private ClientHttpRequestFactorySettings httpClientSettings;
 
     private static KakaoUserInfoResponse profile(long id, String email, String nickname) {
         return profile(id, email, true, nickname);
@@ -142,5 +149,26 @@ class KakaoLoginServiceTest extends IntegrationTestSupport {
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.INVALID_REQUEST);
         assertThat(userRepository.findByEmail("kakao_1006@social.expohub.local")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("카카오를 호출하는 동안에는 DB 트랜잭션이 없다 - 응답이 느려도 커넥션을 붙잡지 않는다")
+    void 외부_호출은_트랜잭션_밖에서_한다() {
+        String email = uniqueEmail();
+        when(kakaoApiClient.getUserInfoByCode(anyString(), anyString())).thenAnswer(call -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            return profile(1007L, email, "카카오사용자");
+        });
+
+        authService.kakaoLogin("code", "http://localhost:5173/auth/kakao/callback");
+
+        assertThat(userRepository.findByEmail(email)).isPresent();
+    }
+
+    @Test
+    @DisplayName("소셜 제공자 호출에는 연결 2초·응답 3초 타임아웃이 걸린다")
+    void 소셜_호출_타임아웃이_설정된다() {
+        assertThat(httpClientSettings.connectTimeout()).isEqualTo(Duration.ofSeconds(2));
+        assertThat(httpClientSettings.readTimeout()).isEqualTo(Duration.ofSeconds(3));
     }
 }

@@ -22,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -51,6 +52,7 @@ public class AuthService {
     private final KakaoApiClient kakaoApiClient;
     private final OauthAccountRepository oauthAccountRepository;
     private final Clock clock;
+    private final TransactionTemplate transactionTemplate;
 
     public SignUpResponse signUp(SignUpRequest request) {
         User user = userRegistrationService.register(
@@ -91,7 +93,6 @@ public class AuthService {
      * 이미 연결된 계정이면 그 회원으로, 처음이면 같은 이메일 회원에 연결하거나 새로 만든다.
      * 이후는 일반 로그인과 똑같은 우리 JWT 를 발급한다.
      */
-    @Transactional
     public LoginResponse googleLogin(String googleAccessToken) {
         GoogleUserInfoResponse info = googleApiClient.getUserInfo(googleAccessToken);
         // 확인 안 된 이메일로는 연결도 생성도 하지 않는다. 연결하면 그 주소의 기존 회원을 가로채고,
@@ -106,7 +107,6 @@ public class AuthService {
      * 네이버 로그인. 프론트가 받은 인가 코드·state 로 서버가 토큰을 교환하고 사용자 정보를 조회한다.
      * 네이버는 이메일을 주므로 구글과 동일하게 이메일 기준으로 연결·생성한다.
      */
-    @Transactional
     public LoginResponse naverLogin(String code, String state) {
         NaverUserInfoResponse info = naverApiClient.getUserInfoByCode(code, state);
         NaverUserInfoResponse.Response r = info == null ? null : info.response();
@@ -121,7 +121,6 @@ public class AuthService {
      * 방안 B: 이메일을 못 받으면 카카오 식별자 기반 placeholder 이메일로 로그인시킨다.
      * placeholder 는 카카오 id 로 고정돼 재로그인 시 같은 회원을 가리킨다.
      */
-    @Transactional
     public LoginResponse kakaoLogin(String code, String redirectUri) {
         KakaoUserInfoResponse info = kakaoApiClient.getUserInfoByCode(code, redirectUri);
         Long id = info == null ? null : info.id();
@@ -149,12 +148,16 @@ public class AuthService {
             throw new BusinessException(ErrorCode.SOCIAL_LOGIN_FAILED);
         }
 
-        User user = oauthAccountRepository.findByProviderAndProviderId(provider, providerId)
-                .map(OauthAccount::getUser)
-                .orElseGet(() -> linkOrCreateSocialUser(provider, providerId, email, name));
+        // 트랜잭션은 DB 작업에만 건다. 제공자 조회까지 안에 두면 응답이 느릴 때 커넥션을 붙잡고 있어
+        // 풀이 바닥나고 일반 로그인까지 멈춘다. 그래서 호출부(google/naver/kakaoLogin)는 트랜잭션 밖이다.
+        return transactionTemplate.execute(status -> {
+            User user = oauthAccountRepository.findByProviderAndProviderId(provider, providerId)
+                    .map(OauthAccount::getUser)
+                    .orElseGet(() -> linkOrCreateSocialUser(provider, providerId, email, name));
 
-        IssuedToken token = jwtTokenProvider.issue(user.getId(), user.primaryRole());
-        return new LoginResponse(token.accessToken(), "Bearer", token.expiresAt());
+            IssuedToken token = jwtTokenProvider.issue(user.getId(), user.primaryRole());
+            return new LoginResponse(token.accessToken(), "Bearer", token.expiresAt());
+        });
     }
 
     /*
