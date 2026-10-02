@@ -16,6 +16,7 @@ import com.team1.security.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -59,6 +60,7 @@ class CheckinCancellationTest {
         checkinLogWriter = mock(CheckinLogWriter.class);
         service = new TicketCheckinService(tickets, expoClient, roundClient,
                 checkinLogWriter, mock(RecommendationClient.class),
+                mock(PlatformTransactionManager.class),
                 Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofHours(1));
 
         ticket = Ticket.issue(123L, "R-4K7Q-W2M8", EXPO_ID, 45L, 77L, 2, "tok-1", NOW.minusSeconds(3600));

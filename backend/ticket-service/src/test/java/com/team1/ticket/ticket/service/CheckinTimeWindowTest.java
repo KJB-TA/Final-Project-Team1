@@ -15,6 +15,7 @@ import com.team1.security.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -53,6 +54,7 @@ class CheckinTimeWindowTest {
         roundClient = mock(RoundClient.class);
         service = new TicketCheckinService(tickets, expoClient, roundClient,
                 mock(CheckinLogWriter.class), mock(RecommendationClient.class),
+                mock(PlatformTransactionManager.class),
                 Clock.fixed(NOW, ZoneOffset.UTC), OPENS_BEFORE);
 
         ticket = Ticket.issue(123L, "R-4K7Q-W2M8", EXPO_ID, ROUND_ID, 77L, 2, "tok-1", NOW.minusSeconds(86400));

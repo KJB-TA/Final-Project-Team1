@@ -20,13 +20,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -45,12 +49,14 @@ public class TicketCheckinService {
     private final RoundClient roundClient;
     private final CheckinLogWriter checkinLogWriter;
     private final RecommendationClient recommendationClient;
+    private final TransactionTemplate tx;
     private final Clock clock;
     private final Duration opensBefore;
 
     public TicketCheckinService(TicketRepository ticketRepository, ExpoClient expoClient,
                                 RoundClient roundClient, CheckinLogWriter checkinLogWriter,
                                 RecommendationClient recommendationClient,
+                                PlatformTransactionManager transactionManager,
                                 Clock clock,
                                 @Value("${checkin.opens-before}") Duration opensBefore) {
         this.ticketRepository = ticketRepository;
@@ -58,6 +64,7 @@ public class TicketCheckinService {
         this.roundClient = roundClient;
         this.checkinLogWriter = checkinLogWriter;
         this.recommendationClient = recommendationClient;
+        this.tx = new TransactionTemplate(transactionManager);
         this.clock = clock;
         this.opensBefore = opensBefore;
     }
@@ -76,42 +83,54 @@ public class TicketCheckinService {
     }
 
     // 체크인 확정. ISSUED → USED (1회용). 이미 사용/취소면 거부.
-    @Transactional
+    // @Transactional 이 아니라 TransactionTemplate 인 이유: afterCommit 은 커넥션을 반납하기 전에 불린다.
+    // 거기서 이력(REQUIRES_NEW)을 쓰면 요청마다 커넥션을 둘씩 잡아, 동시 요청이 풀 크기 이상일 때 서로 막힌다.
+    // 그래서 트랜잭션을 먼저 끝내 커넥션을 돌려준 뒤에 후처리를 돌린다.
     public CheckinResult checkin(Long ticketId, CheckinMethod method, AuthenticatedUser organizer) {
-        requireOrganizer(organizer);
-        Ticket ticket = ticketRepository.findByIdForUpdate(ticketId)
-                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "ticket not found: " + ticketId));
-        verifyOwnership(ticket, organizer);
-        Instant now = clock.instant();
-        requireWithinCheckinWindow(ticket, now);
-        ticket.checkIn(now);
-        afterCommit(() -> {
-            recordQuietly(ticket.getId(), CheckinAction.CHECK_IN, organizer.userId(), method, now);
-            recommendationClient.sendCheckinEvent(ticket.getUserId(), ticket.getExpoId());
+        List<Runnable> afterTx = new ArrayList<>();
+        CheckinResult result = tx.execute(status -> {
+            requireOrganizer(organizer);
+            Ticket ticket = ticketRepository.findByIdForUpdate(ticketId)
+                    .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "ticket not found: " + ticketId));
+            verifyOwnership(ticket, organizer);
+            Instant now = clock.instant();
+            requireWithinCheckinWindow(ticket, now);
+            ticket.checkIn(now);
+            afterTx.add(() -> {
+                recordQuietly(ticket.getId(), CheckinAction.CHECK_IN, organizer.userId(), method, now);
+                recommendationClient.sendCheckinEvent(ticket.getUserId(), ticket.getExpoId());
+            });
+            return CheckinResult.from(ticket);
         });
-        return CheckinResult.from(ticket);
+        afterTx.forEach(this::afterCommit);
+        return result;
     }
 
     // 체크인 되돌리기. USED → ISSUED. 시간창은 보지 않는다 - 창이 닫힌 뒤에도 오처리는 복구돼야 한다.
-    @Transactional
     public CheckinResult cancelCheckin(Long ticketId, AuthenticatedUser organizer) {
-        requireOrganizer(organizer);
-        Ticket ticket = ticketRepository.findByIdForUpdate(ticketId)
-                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "ticket not found: " + ticketId));
-        verifyOwnership(ticket, organizer);
+        List<Runnable> afterTx = new ArrayList<>();
+        CheckinResult result = tx.execute(status -> {
+            requireOrganizer(organizer);
+            Ticket ticket = ticketRepository.findByIdForUpdate(ticketId)
+                    .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "ticket not found: " + ticketId));
+            verifyOwnership(ticket, organizer);
 
-        boolean wasCheckedIn = ticket.getStatus() == TicketStatus.USED;
-        Instant now = clock.instant();
-        ticket.cancelCheckIn();
-        // 실제로 되돌린 경우에만 남긴다. 두 번 눌렀다고 이력이 두 줄이면 이력이 거짓말을 한다.
-        if (wasCheckedIn) {
-            afterCommit(() -> recordQuietly(ticket.getId(), CheckinAction.CANCEL, organizer.userId(), null, now));
-        }
-        return CheckinResult.from(ticket);
+            boolean wasCheckedIn = ticket.getStatus() == TicketStatus.USED;
+            Instant now = clock.instant();
+            ticket.cancelCheckIn();
+            // 실제로 되돌린 경우에만 남긴다. 두 번 눌렀다고 이력이 두 줄이면 이력이 거짓말을 한다.
+            if (wasCheckedIn) {
+                afterTx.add(() -> recordQuietly(ticket.getId(), CheckinAction.CANCEL, organizer.userId(), null, now));
+            }
+            return CheckinResult.from(ticket);
+        });
+        afterTx.forEach(this::afterCommit);
+        return result;
     }
 
     // 이력(REQUIRES_NEW)과 추천 이벤트는 체크인이 커밋된 뒤에만 남긴다. 먼저 남기면 체크인이
-    // 롤백돼도 이력과 이벤트는 그대로 남는다(예약 쪽 AfterCommitExecutor 와 같은 방식).
+    // 롤백돼도 이력과 이벤트는 그대로 남는다. 위 트랜잭션이 이미 끝났으면 바로 실행하고,
+    // 호출자가 바깥 트랜잭션을 들고 있으면 그 커밋 뒤로 미룬다.
     private void afterCommit(Runnable task) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             task.run();

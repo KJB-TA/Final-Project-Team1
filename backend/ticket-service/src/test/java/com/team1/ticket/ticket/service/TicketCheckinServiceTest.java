@@ -16,6 +16,7 @@ import com.team1.security.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -60,6 +61,7 @@ class TicketCheckinServiceTest {
         checkinLogWriter = mock(CheckinLogWriter.class);
         service = new TicketCheckinService(tickets, expoClient, roundClient,
                 checkinLogWriter, mock(RecommendationClient.class),
+                mock(PlatformTransactionManager.class),
                 Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofHours(1));
     }
 
